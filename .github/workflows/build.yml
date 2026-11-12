@@ -227,6 +227,22 @@ jobs:
             dist/*.zip
             dist/*.xpi
 
+  web:
+    # Deploys the web app (jace_passwords/web + webapp/) to Vercel on every push to main.
+    # Needs the VERCEL_TOKEN secret (local/setup_web.py sets it); skipped if it isn't set.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: tests
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Deploy to Vercel
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then echo "::warning::VERCEL_TOKEN secret not set - web app not deployed"; exit 0; fi
+          python3 packaging/deploy_vercel.py
+
   release:
     if: needs.version.outputs.publish == 'true'
     needs: [version, windows, macos, linux, extension]

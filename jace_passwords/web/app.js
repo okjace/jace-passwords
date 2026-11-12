@@ -32,6 +32,10 @@ const S = {
 
 /* ---------------- api ---------------- */
 async function api(method, path, body, background = false) {
+  if (window.JPWeb) { // the web app: the vault runs in this page (webvault.js)
+    try { return await window.JPWeb.api(method, path, body ?? {}); }
+    catch (e) { if (e.locked) { await refreshState(); throw new Error("Locked"); } throw e; }
+  }
   const headers = { "X-Jace-Passwords": "1" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (background) headers["X-Background"] = "1";
@@ -749,7 +753,8 @@ async function renderSettings(el) {
     <label class="check"><input type="checkbox" data-s="travelMode" ${s.travelMode ? "checked" : ""}> Travel Mode is on</label></div>
   <div class="panel"><h3>Vaults</h3>${S.data.vaults.map((v) => `<div class="field" style="padding:8px 0"><span class="dot" style="width:12px;height:12px;border-radius:4px;background:${h(v.color)}"></span><div class="body">${h(v.icon)} <b>${h(v.name)}</b> ${v.travelSafe ? `<span class="pill ok">Safe for travel</span>` : ""}</div><button class="btn small" data-a="edit-vault" data-id="${h(v.id)}">Edit</button></div>`).join("")}
     <button class="btn" data-a="new-vault" style="margin-top:8px">＋ New vault</button></div>
-  <div class="panel"><h3>🧩 Browser extension (autofill)</h3>
+  ${st.web ? `<div class="panel"><h3>🧩 Autofill and passkeys</h3><p class="muted small">You're using Jace Passwords on the web. For autofill and passkeys in your browser, get the <a href="https://github.com/okjace/jace-passwords/releases/latest" target="_blank" rel="noopener">desktop app and extension</a>, and sign in with the same Jace account: they open this same vault.</p></div>` : ""}
+  <div class="panel ${st.web ? "hidden" : ""}"><h3>🧩 Browser extension (autofill)</h3>
     <p class="muted small">Get the extension from the <a href="https://github.com/okjace/jace-passwords/releases/latest" target="_blank" rel="noopener">latest release</a>: in Jace Browser or Firefox, install the signed <code>.xpi</code> (about:addons → gear → Install Add-on From File). In Chrome, Edge or Brave, unzip the <code>-chrome.zip</code> and load it at chrome://extensions → Developer mode → Load unpacked. Then pair it with this code:</p>
     <div id="pair-out"></div><button class="btn primary" data-a="pair">Get pairing code</button>
     ${devices.length ? `<label class="lbl">Paired browsers</label>${devices.map((d) => `<div class="field" style="padding:8px 0"><div class="body"><b>${h(d.name)}</b><div class="small muted">Paired ${fmtDate(d.createdAt)}</div></div><button class="btn danger small" data-a="unpair" data-id="${h(d.id)}">Remove</button></div>`).join("")}` : ""}

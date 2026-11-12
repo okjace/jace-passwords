@@ -31,6 +31,8 @@ Get everything from the [latest release](https://github.com/okjace/jace-password
 | **Jace Browser / Firefox** | `jace-passwords-…-signed.xpi`: go to `about:addons`, click the gear icon, then **Install Add-on From File…** |
 | **Chrome / Edge / Brave** | `jace-passwords-…-chrome.zip`: unzip it, then go to `chrome://extensions`, turn on Developer mode and click **Load unpacked** |
 
+**On the web**, there's nothing to install: open the web app on Vercel and sign in with Jace. Your vault is decrypted only inside your browser, with the same encryption as the desktop app, so both open the same synced vault. The server only handles Jace sign-in and passes the already-encrypted vault to Jace. For autofill and passkeys, use the desktop app with the extension.
+
 The desktop app sets itself up the way Jace Launcher does. The first time you open the download, a setup wizard asks where to install it and adds shortcuts. Depending on the system, that's the applications menu, Start menu, Dock, desktop, terminal command, Windows "Installed apps" or app centers.
 
 The setup can also start Jace Passwords in the tray when you sign in to your computer, so the browser extension can autofill without the window open. Closing the window leaves it in the tray, and the tray menu has **Lock** and **Quit**. Uninstall it from the app menu, from Windows Settings, or by running `jace-passwords --uninstall`. Your vault is kept unless you choose to delete it.
@@ -52,13 +54,15 @@ This needs Python 3.10+ and `cryptography`; `run.sh` installs it if it's missing
 - **Extension:** `python3 packaging/build_extension.py` builds `dist/jace-passwords-<version>-chrome.zip` and `dist/jace-passwords-<version>-firefox.xpi`.
 - **Signing for Firefox and Jace Browser:** run `python3 packaging/sign_firefox.py`. It asks for your [addons.mozilla.org API keys](https://addons.mozilla.org/developers/addon/api/key/), uploads the add-on as unlisted (never published on the store), and saves `dist/jace-passwords-<version>-signed.xpi`. Bump `version` in `extension/manifest.json` first, because Mozilla won't sign the same version twice.
 
+- **Web app:** `python3 packaging/deploy_vercel.py` deploys the static files in `jace_passwords/web` and the function in `webapp/api/jace.py` (Jace sign-in and the sync relay) to Vercel. It reads `VERCEL_TOKEN`, or asks for it. The site needs `JACE_WEB_CLIENT_ID`, `JACE_WEB_CLIENT_SECRET` and `SITE_URL` set on Vercel.
+
 GitHub Actions (`.github/workflows/build.yml`) builds and tests all of these on every push, using each platform's installer self-test. To release:
 
 1. Raise `APP_VERSION` in `jace_passwords/__init__.py` and `version` in `extension/manifest.json`.
 2. Add a `## <version>` section to `CHANGELOG.md`.
 3. Push to `main`.
 
-Once every build passes, the workflow publishes a GitHub Release with all the downloads. If the repository secrets `AMO_JWT_ISSUER` and `AMO_JWT_SECRET` are set, it also signs the Firefox extension.
+Once every build passes, the workflow publishes a GitHub Release with all the downloads. If the repository secrets `AMO_JWT_ISSUER` and `AMO_JWT_SECRET` are set, it also signs the Firefox extension. If `VERCEL_TOKEN` is set, every push to `main` also redeploys the web app.
 
 ## Security
 
