@@ -5,7 +5,8 @@
 The first release of Jace Passwords.
 
 - **Vault:** logins, credit and debit cards, secure notes, identities and email aliases. It's end-to-end encrypted with AES-256-GCM, using your master password plus a Secret Key (scrypt + HKDF).
-- **Sign in with Jace:** your encrypted vault syncs to your Jace account, and Jace only ever stores ciphertext.
+- **Sign in with Jace:** your encrypted vault syncs to your Jace account, and Jace only ever stores ciphertext. Signing in works like Jace Social: on Jace OS, the app uses the computer's Jace account without asking. The desktop app signs in through your normal browser, and the web app signs you in automatically when you're already signed in to Jace.
+- **Web app** at https://jace-passwords.vercel.app: the same vault, decrypted only in your browser.
 - **Passkeys:** create passkeys and sign in with them on any site. You can also pick one from the username field's menu.
 - **Two-factor codes:** stored right on the login, with a live countdown and autofill.
 - **"Sign in with…":** a login can record that a site uses Google, Apple, Microsoft, GitHub, Facebook, X, Discord or Jace.

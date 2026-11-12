@@ -142,18 +142,23 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
                 return
             state, verifier = secrets.token_urlsafe(24), secrets.token_urlsafe(48)
             challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
-            url = f"{JACE_URL}/oauth/authorize?" + urllib.parse.urlencode({
-                "response_type": "code", "client_id": CLIENT_ID, "redirect_uri": REDIRECT, "scope": "profile sync",
-                "state": state, "code_challenge": challenge, "code_challenge_method": "S256"})
-            return self._redirect(url, [self._cookie(STATE_COOKIE, _sign(f"{state}:{verifier}"), 600)])
+            silent = q.get("prompt") == "none"  # Jace's silent sign-in: no page if you're already signed in
+            params = {"response_type": "code", "client_id": CLIENT_ID, "redirect_uri": REDIRECT, "scope": "profile sync",
+                      "state": state, "code_challenge": challenge, "code_challenge_method": "S256"}
+            if silent:
+                params["prompt"] = "none"
+            url = f"{JACE_URL}/oauth/authorize?" + urllib.parse.urlencode(params)
+            return self._redirect(url, [self._cookie(STATE_COOKIE, _sign(f"{state}:{verifier}:{int(silent)}"), 600)])
         if route == "callback":
             if not self._configured():
                 return
             saved = _unsign(self._cookies().get(STATE_COOKIE, "")) or ""
-            state, _, verifier = saved.partition(":")
+            state, verifier, silent = (saved.split(":") + ["", "", "0"])[:3]
             clear_state = self._cookie(STATE_COOKIE, "", 0)
             if not state or not hmac.compare_digest(state, q.get("state", "")):
                 return self._redirect("/?signin_error=" + urllib.parse.quote("That sign-in didn't match. Please try again."), [clear_state])
+            if q.get("error") and silent == "1":
+                return self._redirect("/", [clear_state])  # not signed in to Jace (yet): show the button, no error
             if q.get("error"):
                 return self._redirect("/?signin_error=" + urllib.parse.quote(q.get("error_description") or q["error"]), [clear_state])
             status, tok = _jace("POST", "/api/oauth/token", form={

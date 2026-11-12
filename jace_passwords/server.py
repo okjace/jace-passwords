@@ -21,7 +21,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import APP_NAME, APP_VERSION, HOST, PORT, crypto, generator, importers, jace, passkeys, security, totp, write_private
+from . import APP_NAME, APP_VERSION, CLIENT_ID, HOST, PORT, crypto, jaceos, generator, importers, jace, passkeys, security, totp, write_private
 from .vault import ITEM_TYPES, Locked, Vault, VaultError, new_id, now_iso
 
 WEB = Path(__file__).parent / "web"
@@ -65,6 +65,29 @@ class App:
     def public_account(self):
         a = self.jace_account()
         return jace.public_user(a["user"]) if a else None
+
+    def sign_in_with_jace_os(self) -> bool:
+        """Jace OS: sign in with the computer's Jace account, without asking (like Jace Social)."""
+        if not jaceos.available():
+            return False
+        got = jaceos.token_for(CLIENT_ID, "profile sync")
+        if not got:
+            return False
+        try:
+            acct = jace.account_from_token(got["access_token"], got.get("expires_in"), got.get("scope", ""))
+        except jace.JaceError:
+            return False
+        self.vault.update_device(jace=acct)
+        self.signin_error = None
+        if self.vault.unlocked:
+            self.vault.set_account(jace.public_user(acct["user"]))
+            self.schedule_sync(0.1)
+        return True
+
+    def auto_sign_in(self):
+        """At startup: on Jace OS, sign in silently if this computer is signed in to Jace."""
+        if not self.jace_account() and jaceos.available():
+            threading.Thread(target=self.sign_in_with_jace_os, daemon=True).start()
 
     # ---------- sync ----------
     def schedule_sync(self, delay=2.0):
@@ -368,6 +391,8 @@ def make_handler(app: App):
         if head == "jace":
             if arg == "signin":
                 app.signin_error = None
+                if app.sign_in_with_jace_os():
+                    return {"signedIn": True}
                 return {"url": app.auth.start()}
             if arg == "signout":
                 v.update_device(jace=None)
@@ -722,6 +747,7 @@ def start(app: App):
     write_private(data_dir() / "server.json", json.dumps({"port": PORT, "launch": app.launch_key}))
     threading.Thread(target=app.autolock_loop, daemon=True).start()
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    app.auto_sign_in()
     return httpd, f"http://{HOST}:{PORT}/?launch={app.launch_key}"
 
 

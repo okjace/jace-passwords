@@ -31,7 +31,7 @@ Get everything from the [latest release](https://github.com/okjace/jace-password
 | **Jace Browser / Firefox** | `jace-passwords-…-signed.xpi`: go to `about:addons`, click the gear icon, then **Install Add-on From File…** |
 | **Chrome / Edge / Brave** | `jace-passwords-…-chrome.zip`: unzip it, then go to `chrome://extensions`, turn on Developer mode and click **Load unpacked** |
 
-**On the web**, there's nothing to install: open the web app on Vercel and sign in with Jace. Your vault is decrypted only inside your browser, with the same encryption as the desktop app, so both open the same synced vault. The server only handles Jace sign-in and passes the already-encrypted vault to Jace. For autofill and passkeys, use the desktop app with the extension.
+**On the web**, there's nothing to install: open https://jace-passwords.vercel.app and sign in with Jace. If you're already signed in to Jace, for example in Jace Browser, it signs you in automatically. Your vault is decrypted only inside your browser, with the same encryption as the desktop app, so both open the same synced vault. The server only handles Jace sign-in and passes the already-encrypted vault to Jace. For autofill and passkeys, use the desktop app with the extension.
 
 The desktop app sets itself up the way Jace Launcher does. The first time you open the download, a setup wizard asks where to install it and adds shortcuts. Depending on the system, that's the applications menu, Start menu, Dock, desktop, terminal command, Windows "Installed apps" or app centers.
 
@@ -73,7 +73,7 @@ KEK = k1 XOR k2      →  unwraps a random 256-bit vault key  →  AES-256-GCM v
 ```
 
 - **Two secrets, like 1Password:** a stolen vault can't be brute-forced from your master password alone. Your Secret Key is on the **Emergency Kit** shown when you create the vault. You need it plus your master password on a new device.
-- **Jace sync:** "Sign in with Jace" uses OAuth 2.0 + PKCE with no client secret. The already-encrypted vault is stored in Jace's `pw-vault` sync collection. Jace never sees your master password or Secret Key, so it can't read or reset your vault. If two devices edit at the same time, each item keeps the newest change.
+- **Jace sync:** "Sign in with Jace" follows Jace's developer docs, like Jace Social. On Jace OS, the app gets its token from the computer's Jace account through token exchange (`jace-account --token-for`), with no prompt. The desktop app otherwise uses OAuth 2.0 + PKCE in your normal browser with a loopback redirect. The web app uses the code flow with its client secret on Vercel, plus silent `prompt=none` sign-in. The already-encrypted vault is stored in Jace's `pw-vault` sync collection. Jace never sees your master password or Secret Key, so it can't read or reset your vault. If two devices edit at the same time, each item keeps the newest change.
 - **Local server:** listens on 127.0.0.1 only. Requests with a foreign `Host` are rejected (DNS-rebinding guard). The app window needs a session cookie that comes from a launch link only you can read. Every API call also needs a custom header. The extension needs a token it gets by pairing, and CORS is open only to extension origins.
 - **Files:** they're in `~/.local/share/jace-passwords/` on Linux, `%APPDATA%\\Jace Passwords` on Windows, and `~/Library/Application Support/Jace Passwords` on macOS, with mode 0600. `vault.json` is encrypted. `device.json` holds this device's Secret Key, Jace token and paired extensions.
 

@@ -263,11 +263,24 @@
     const j = await r.json().catch(() => ({}));
     return { status: r.status, body: j };
   }
-  async function me() {
-    if (jaceUser !== undefined) return jaceUser;
-    const r = await jace("GET", "me").catch(() => ({ status: 0 }));
-    jaceUser = r.status === 200 ? r.body.user : null;
-    return jaceUser;
+  let mePromise = null;
+  function me() {
+    if (jaceUser !== undefined) return Promise.resolve(jaceUser);
+    mePromise ||= jace("GET", "me").catch(() => ({ status: 0 })).then((r) => {
+      jaceUser = r.status === 200 ? r.body.user : null;
+      mePromise = null;
+      return jaceUser;
+    });
+    return mePromise;
+  }
+  // Silent sign-in (Jace's prompt=none), once per visit: if you're already signed in to Jace
+  // (Jace Browser does this for Jace's own apps), you're signed in here too, with no button.
+  {
+    let tried = false;
+    try { tried = sessionStorage.getItem("jp-silent") === "1"; sessionStorage.setItem("jp-silent", "1"); } catch { tried = true; }
+    if (!tried && !/[?&](signin_error|web=1)\b/.test(location.search)) {
+      me().then((u) => { if (!u) location.replace("/api/jace/signin?prompt=none"); });
+    }
   }
   const decodeVault = (payload) => JSON.parse(dec.decode(b64d(payload)));
   async function pull() {
@@ -531,7 +544,7 @@
       case "card-check": { const n = String(body.number || "").replace(/\D/g, ""); return { brand: cardBrand(n), valid: luhn(n) }; }
       case "jace":
         if (arg === "signin") return { url: "/api/jace/signin" };
-        if (arg === "signout") { await jace("POST", "signout"); jaceUser = null; Object.assign(sync, { status: "idle", error: null }); return { ok: true }; }
+        if (arg === "signout") { await jace("POST", "signout"); jaceUser = null; try { sessionStorage.setItem("jp-silent", "1"); } catch { /* */ } Object.assign(sync, { status: "idle", error: null }); return { ok: true }; }
         if (arg === "remote") {
           if (!(await me())) throw new ApiError("Sign in with Jace first.");
           const [remote] = await pull();

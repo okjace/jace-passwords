@@ -833,7 +833,13 @@ function palette() {
 
 /* ---------------- actions ---------------- */
 const ACTIONS = {
-  async "jace-signin"() { const r = await POST("jace/signin"); location.href = r.url; },
+  async "jace-signin"(el) {
+    if (el) { el.disabled = true; }
+    const r = await POST("jace/signin").finally(() => el && (el.disabled = false));
+    if (r.signedIn) { toast("Signed in with this computer's Jace account"); if (S.onboard) S.onboard.remote = undefined; return refreshState(); }
+    if (/QtWebEngine/.test(navigator.userAgent)) toast("Finish signing in to Jace in your browser…");
+    location.href = r.url;
+  },
   async "jace-signout"() { if (!confirm("Sign out of Jace? Your vault stays on this computer; sync stops.")) return; await POST("jace/signout"); if (S.onboard) S.onboard.remote = undefined; await refreshState(); },
   "ob-create"() { S.onboard.step = "create"; render(); },
   "ob-restore"() { S.onboard.step = "restore"; render(); },

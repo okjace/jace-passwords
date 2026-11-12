@@ -11,7 +11,7 @@ from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngin
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication, QFileDialog, QMainWindow, QMenu, QSystemTrayIcon
 
-from .. import APP_NAME, APP_VERSION, GITHUB_REPO, GITHUB_URL, HOST, JACE_URL, PORT
+from .. import APP_NAME, APP_VERSION, GITHUB_REPO, GITHUB_URL, HOST, PORT
 from . import install
 
 APP_ORIGIN = f"http://{HOST}:{PORT}"
@@ -22,16 +22,15 @@ def _is_app(url: QUrl) -> bool:
 
 
 class Page(QWebEnginePage):
-    """Keeps the window on the vault: other links open in your browser. Signing in to Jace
-    happens in the window, and anything that sign-in needs (Jace, GitHub) is allowed."""
+    """Keeps the window on the vault. Everything else, Sign in with Jace included, opens in your
+    normal browser (where you're already signed in to Jace), like Jace Social's apps: Jace sends
+    the browser back to this app's own address, and the window notices you're signed in."""
 
     def acceptNavigationRequest(self, url, nav_type, is_main_frame):  # noqa: N802
         if not is_main_frame or _is_app(url) or url.scheme() in ("data", "blob", "about"):
             return True
-        if _is_app(self.url()) and not url.toString().startswith(JACE_URL):
-            QDesktopServices.openUrl(url)
-            return False
-        return True
+        QDesktopServices.openUrl(url)
+        return False
 
     def createWindow(self, _type):  # noqa: N802 - target=_blank links -> your browser
         tmp = QWebEnginePage(self.profile(), self)

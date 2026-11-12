@@ -99,9 +99,19 @@ class Auth:
         }
 
 
+def account_from_token(access_token: str, expires_in=None, scope: str = "") -> dict:
+    """A signed-in account record (what Auth.finish saves) for an access token, e.g. one from Jace OS."""
+    status, user = _request("GET", f"{JACE_URL}/api/oauth/userinfo", token=access_token)
+    if status != 200:
+        raise JaceError("Couldn't read your Jace profile.")
+    return {"access_token": access_token,
+            "expires_at": time.time() + float(expires_in) if expires_in else 0,
+            "scope": scope, "user": user}
+
+
 def public_user(u: dict) -> dict:
     return {"id": str(u.get("sub") or u.get("id") or ""), "username": u.get("preferred_username") or u.get("username") or "",
-            "name": u.get("name") or "", "picture": u.get("picture") or ""}
+            "name": u.get("display_name") or u.get("name") or "", "picture": u.get("picture") or ""}
 
 
 def pull(token: str) -> tuple[dict | None, int]:
