@@ -1,0 +1,34 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Autofill test page</title>
+<style>body{font-family:system-ui;max-width:520px;margin:30px auto;padding:0 16px}input,select{display:block;width:100%;padding:8px;margin:4px 0 12px;box-sizing:border-box}form{border:1px solid #ccc;padding:16px;border-radius:10px;margin-bottom:20px}</style>
+<!-- Open this file in a browser to try content.js without installing the extension:
+     it stubs chrome.runtime with canned vault data. -->
+<form id="login"><h3>Sign in</h3>
+  <label>Email<input type="email" name="email" autocomplete="username"></label>
+  <label>Password<input type="password" name="password" autocomplete="current-password"></label>
+  <button>Sign in</button></form>
+<form id="otp"><h3>2FA</h3><label>Authenticator code<input name="otp" autocomplete="one-time-code"></label></form>
+<form id="pay"><h3>Checkout</h3>
+  <label>Name on card<input name="ccname" autocomplete="cc-name"></label>
+  <label>Card number<input name="cardnumber" autocomplete="cc-number"></label>
+  <label>Expiry<input name="exp" autocomplete="cc-exp" placeholder="MM/YY"></label>
+  <label>CVC<input name="cvc" autocomplete="cc-csc"></label></form>
+<form id="signup"><h3>Create account</h3>
+  <label>New password<input type="password" autocomplete="new-password"></label>
+  <label>Confirm<input type="password" name="confirm_password"></label></form>
+<script>
+const canned = {
+  status: { locked: false, account: { username: "jace" } },
+  match: { site: "example.com", logins: [{ id: "L1", type: "login", title: "Example", username: "jace@example.com", hasPassword: true, hasTotp: true }],
+           cards: [{ id: "C1", type: "card", title: "Everyday Visa", last4: "1111", brand: "Visa", cardType: "debit" }], identities: [] },
+  fill: { L1: { type: "login", username: "jace@example.com", password: "s3cret-Pass!", totp: "123456" },
+          C1: { type: "card", cardholder: "JACE TESTER", number: "4111111111111111", expMonth: "09", expYear: "2029", cvv: "123" } },
+  generate: { password: "Gen-Erated-Pa55!" },
+};
+window.chrome = { runtime: { onMessage: { addListener() {} }, sendMessage(msg, cb) {
+  const r = msg.type === "fill" ? canned.fill[msg.id] : msg.type === "totp-for-tab" ? { totp: "123456" } : canned[msg.type] || { none: true };
+  setTimeout(() => cb(r), 10);
+} } };
+</script>
+<script src="../extension/content.js"></script>

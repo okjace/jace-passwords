@@ -1,0 +1,257 @@
+# Builds Jace Passwords (Windows, macOS, Linux) and the browser extension on GitHub's runners.
+# Every push / PR uploads the builds as workflow artifacts.
+# A push to main with a new APP_VERSION (jace_passwords/__init__.py), or a v* tag, publishes a
+# GitHub Release with everything attached, once every build passes.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V=$(python3 -c "import re;print(re.search(r'APP_VERSION = \"([^\"]+)\"', open('jace_passwords/__init__.py').read()).group(1))")
+          E=$(python3 -c "import json;print(json.load(open('extension/manifest.json'))['version'])")
+          [ "$V" = "$E" ] || { echo "::error::App $V and extension $E versions differ"; exit 1; }
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"; echo "publish=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$GITHUB_REF" == refs/heads/main && "$GITHUB_EVENT_NAME" == push ]] && ! gh release view "v$V" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "New version v$V: will be released if every build passes"
+            echo "tag=v$V" >> "$GITHUB_OUTPUT"; echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "v$V is already released (or this isn't a push to main): build and test only"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Vault, crypto, TOTP, passkeys
+        run: python -m unittest discover tests -v
+
+  windows:
+    needs: tests
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-desktop.txt pyinstaller
+      - name: Build .exe
+        run: python packaging/build.py
+      - name: Test the installer, the installed app, and uninstall
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:JACE_PASSWORDS_HOME = "$env:RUNNER_TEMP\jp-home"
+          $setup = (Get-ChildItem dist\*.exe)[0].FullName
+          function Run($exe, $argList) {
+            $p = Start-Process -FilePath $exe -ArgumentList $argList -Wait -PassThru
+            if ($p.ExitCode -ne 0) { throw "$exe $argList exited with $($p.ExitCode)" }
+          }
+          Run $setup "--install --yes"
+          $dir = "$env:LOCALAPPDATA\Programs\Jace Passwords"
+          $exe = "$dir\JacePasswords.exe"
+          if (!(Test-Path $exe)) { throw "not installed" }
+          $sm = [Environment]::GetFolderPath("Programs") + "\Jace Passwords.lnk"
+          $dt = [Environment]::GetFolderPath("Desktop") + "\Jace Passwords.lnk"
+          if (!(Test-Path $sm)) { throw "Start menu shortcut missing" }
+          if (!(Test-Path $dt)) { throw "desktop shortcut missing" }
+          $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\JacePasswords"
+          if (!(Test-Path $key)) { throw "Installed apps entry missing" }
+          $run = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Jace Passwords" -ErrorAction SilentlyContinue
+          if (!$run) { throw "start-at-sign-in entry missing" }
+          $env:JACE_SELF_TEST_OUT = "$env:RUNNER_TEMP\selftest.txt"
+          Run $exe "--self-test"
+          Get-Content $env:JACE_SELF_TEST_OUT
+          Run $exe "--uninstall"
+          Start-Sleep -Seconds 8
+          if (Test-Path $dir) { throw "install folder left behind" }
+          if (Test-Path $sm) { throw "Start menu shortcut left behind" }
+          if (Test-Path $key) { throw "Installed apps entry left behind" }
+          if (!(Test-Path "$env:JACE_PASSWORDS_HOME")) { throw "uninstall deleted the vault folder" }
+          "WINDOWS INSTALLER OK"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: dist/*.exe
+
+  macos:
+    needs: tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest       # Apple Silicon
+            arch: arm64
+          - runner: macos-15-intel     # Intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-desktop.txt pyinstaller
+      - name: Build .app
+        run: python packaging/build.py
+      - name: Test the installer (from a downloaded .app), the installed app, and uninstall
+        env:
+          JACE_PASSWORDS_HOME: ${{ runner.temp }}/jp-home
+        run: |
+          set -x
+          DL="$RUNNER_TEMP/Downloads"; mkdir -p "$DL"
+          ditto -x -k dist/*.app.zip "$DL"
+          xattr -w com.apple.quarantine "0081;$(printf %x $(date +%s));Safari;" "$DL/Jace Passwords.app"
+          "$DL/Jace Passwords.app/Contents/MacOS/Jace Passwords" --install --yes
+          APP="/Applications/Jace Passwords.app"
+          test -d "$APP"
+          test -L "$HOME/Desktop/Jace Passwords"
+          test -f "$HOME/Library/LaunchAgents/io.github.okjace.JacePasswords.plist"
+          if xattr -r "$APP" | grep -q com.apple.quarantine; then echo "::error::app still quarantined"; exit 1; fi
+          QT_QPA_PLATFORM=offscreen JACE_SELF_TEST_OUT="$RUNNER_TEMP/selftest.txt" "$APP/Contents/MacOS/Jace Passwords" --self-test
+          cat "$RUNNER_TEMP/selftest.txt"
+          "$APP/Contents/MacOS/Jace Passwords" --uninstall
+          for i in $(seq 1 30); do [ -e "$APP" ] || break; sleep 1; done
+          test ! -e "$APP"
+          test ! -e "$HOME/Desktop/Jace Passwords"
+          test -d "$JACE_PASSWORDS_HOME"
+          echo "MAC INSTALLER OK"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-${{ matrix.arch }}
+          path: dist/*.app.zip
+
+  linux:
+    needs: tests
+    # older Ubuntu = older glibc = the AppImage runs on more distros
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-cursor0 libegl1 libxkbcommon-x11-0 libnss3 libxcomposite1 libxdamage1 \
+            libxrandr2 libxtst6 libasound2 desktop-file-utils
+      - name: Create virtualenv
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -r requirements-desktop.txt pyinstaller
+      - name: Build AppImage
+        run: ./packaging/build_appimage.sh
+      - name: Test the AppImage, its installer and uninstall
+        env:
+          QT_QPA_PLATFORM: offscreen
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+          JACE_PASSWORDS_HOME: ${{ runner.temp }}/jp-home
+          JACE_SELF_TEST_OUT: ${{ runner.temp }}/selftest.txt
+        run: |
+          set -x
+          AI=$(ls dist/JacePasswords-*-x86_64.AppImage)
+          "$AI" --self-test; cat "$JACE_SELF_TEST_OUT"
+          "$AI" --install --yes
+          test -x "$HOME/Applications/JacePasswords.AppImage"
+          test -f "$HOME/.local/share/applications/io.github.okjace.JacePasswords.desktop"
+          test -x "$HOME/.local/bin/jace-passwords"
+          test -f "$HOME/.config/autostart/io.github.okjace.JacePasswords.desktop"
+          desktop-file-validate "$HOME/.local/share/applications/io.github.okjace.JacePasswords.desktop"
+          "$HOME/Applications/JacePasswords.AppImage" --uninstall
+          test ! -e "$HOME/Applications/JacePasswords.AppImage"
+          test ! -e "$HOME/.local/share/applications/io.github.okjace.JacePasswords.desktop"
+          test -d "$JACE_PASSWORDS_HOME"
+          echo "LINUX INSTALLER OK"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux
+          path: dist/*.AppImage
+
+  extension:
+    needs: [version, tests]
+    runs-on: ubuntu-latest
+    env:
+      AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+      AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build Chrome .zip and Firefox .xpi
+        run: python3 packaging/build_extension.py
+      - name: Sign for Firefox / Jace Browser (unlisted on addons.mozilla.org)
+        # only for releases, and only if the AMO_JWT_ISSUER / AMO_JWT_SECRET secrets are set
+        if: needs.version.outputs.publish == 'true'
+        run: |
+          if [ -z "$AMO_JWT_ISSUER" ] || [ -z "$AMO_JWT_SECRET" ]; then
+            echo "::warning::AMO_JWT_ISSUER / AMO_JWT_SECRET secrets not set - the release gets the unsigned .xpi only"
+            exit 0
+          fi
+          python3 packaging/sign_firefox.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: extension
+          path: |
+            dist/*.zip
+            dist/*.xpi
+
+  release:
+    if: needs.version.outputs.publish == 'true'
+    needs: [version, windows, macos, linux, extension]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: actions/checkout@v7
+        with:
+          path: src
+      - name: Release notes from CHANGELOG.md
+        run: |
+          V="${{ needs.version.outputs.tag }}"; V="${V#v}"
+          awk -v v="$V" '$0 == "## "v {f=1; next} /^## / {f=0} f' src/CHANGELOG.md > notes.md
+          cat src/packaging/release-footer.md >> notes.md
+          cat notes.md
+          ls -la artifacts
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Jace Passwords ${{ needs.version.outputs.tag }}
+          body_path: notes.md
+          files: artifacts/*
