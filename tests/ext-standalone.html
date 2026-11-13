@@ -63,7 +63,26 @@ window.fetch = (url, opts) => realFetch(String(url).replace("https://jace-passwo
     const signed = new Uint8Array([...d(got.authenticatorData), ...new Uint8Array(await crypto.subtle.digest("SHA-256", d(got.clientDataJSON)))]);
     step("11 passkey sign-in verifies", await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, pub, rawSig, signed));
     step("12 cross-site passkey refused", (await handle({ type: "passkey-get", req: { challenge: ch, rpId: "example.com" }, credentialId: list[0].credentialId }, { ...tab, origin: "https://evil.com" })).message);
+    // cards and addresses typed into a checkout: offered one after the other, then saved
+    const checkout = { url: "https://shop.example.com/checkout",
+      card: { number: "4242424242424242", cardholder: "Jace Tester", expMonth: "04", expYear: "2031" },
+      identity: { fullName: "Jace Tester", email: "jace@example.com", phone: "+1 555 0100", address1: "1 Main St", city: "Los Angeles", state: "California", zip: "90001", country: "United States" } };
+    await handle({ type: "submitted-items", ...checkout }, tab);
+    const offer1 = await handle({ type: "pending-item" }, tab);
+    step("12a first offer", { type: offer1.type, status: offer1.status, summary: offer1.summary });
+    step("12b save card", (await handle({ type: "save-item-pending", save: true, itemType: offer1.type }, tab)).status);
+    const offer2 = await handle({ type: "pending-item" }, tab);
+    step("12c second offer", { type: offer2.type, status: offer2.status });
+    step("12d save address", (await handle({ type: "save-item-pending", save: true, itemType: offer2.type }, tab)).status);
+    await handle({ type: "submitted-items", ...checkout }, tab);
+    step("12e same details again: no offer", JSON.stringify(await handle({ type: "pending-item" }, tab)));
+    await handle({ type: "submitted-items", url: checkout.url, identity: { ...checkout.identity, phone: "+1 555 0199" } }, tab);
+    const offer3 = await handle({ type: "pending-item" }, tab);
+    step("12f new phone: offered as an update", offer3.status);
     const engine = await engineReady;
+    const saved = await engine.ext("match", { url: "https://shop.example.com" });
+    step("12g in the vault", { cards: saved.cards.map((c) => c.title), identities: saved.identities.map((i) => i.title) });
+    step("12h CVC never saved", !JSON.stringify(engine._vault.data).includes('"cvv":"'));
     step("13 sync", (await engine.syncNow()).status);
     step("14 Python reads what the extension synced", await realFetch("/verify").then((r) => r.json()));
     step("15 session survives a background restart", !!(await chrome.storage.session.get("jpSession")).jpSession?.key);

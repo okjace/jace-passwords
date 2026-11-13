@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "Jace Passwords"
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 APP_RELEASE_DATE = "2026-11-13"
 AUTHOR = "jace.deb"
 GITHUB_REPO = "okjace/jace-passwords"

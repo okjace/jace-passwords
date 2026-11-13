@@ -1,0 +1,8 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>body{font-family:system-ui;margin:8px}input{display:block;width:90%;padding:6px;margin:4px 0}</style>
+<!-- A card-fields frame (like Stripe's). Loaded same-site, and from 127.0.0.1 as a stand-in for a third-party ad frame. -->
+<label>Expiry<input name="exp" autocomplete="cc-exp" placeholder="MM / YY"></label>
+<label>CVC<input name="cvc" autocomplete="cc-csc"></label>
+<label>Card number (a third party fishing for it)<input name="cardnumber" autocomplete="cc-number"></label>
+<script src="/tests/frames-stub.js"></script>

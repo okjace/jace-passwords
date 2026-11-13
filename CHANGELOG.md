@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.0
+
+- **Card autofill works on many more checkouts:**
+  - Fields marked `billing`, `shipping` or with a section prefix are recognized, and so are fields found only by their label.
+  - **Dropdowns:** the expiry month (as "09", "9", "September" or "Sep"), the expiry year (2029 or 29) and the card type.
+  - **Brand and credit/debit buttons**, and first and last name on the card.
+  - **Expiry text fields** follow the field's own format, like "MM/YY", "MM / YY" or "MM/YYYY".
+  - **Card fields in their own frames,** as on Stripe and other payment providers, now fill too. Only frames from the same website or a known payment provider receive your card details, never ads or other third parties.
+- **Address and contact autofill:** name (full, or first, middle and last), email, phone, address lines, city, state, ZIP, country, company and birthday. Country dropdowns work with names or ISO codes, and US state dropdowns with names or abbreviations.
+- **Save what you type:** after you submit a checkout or address form, Jace Passwords offers to save the card and the address. It never saves the CVC, never offers details you already have, and offers changed details as an update.
+
 ## 1.2.0
 
 - **Import from other password managers, passkeys included:**

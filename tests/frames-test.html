@@ -1,0 +1,14 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Frame fill test</title>
+<style>body{font-family:system-ui;max-width:520px;margin:20px auto}input{display:block;width:100%;padding:8px;margin:4px 0 12px;box-sizing:border-box}iframe{width:100%;height:190px;border:1px solid #ccc}</style>
+<!-- Open from http://localhost:47699/tests/frames-test.html. The first frame is the same site; the second
+     (127.0.0.1) counts as another site and must never receive card details. -->
+<h3>Checkout</h3>
+<label>Card number<input name="cardnumber" autocomplete="cc-number"></label>
+<p>Card details frame (same site):</p>
+<iframe id="same" src="/tests/frames-child.html"></iframe>
+<p>Ad frame (another site):</p>
+<iframe id="other"></iframe>
+<script>document.getElementById("other").src = `http://127.0.0.1:${location.port}/tests/frames-child.html`;</script>
+<script src="/tests/frames-stub.js"></script>
