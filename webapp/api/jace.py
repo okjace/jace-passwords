@@ -38,6 +38,8 @@ REDIRECT = f"{SITE_URL}/api/jace/callback"
 COLLECTION = "pw-vault"
 UA = "JacePasswordsWeb/1.0"
 TOKEN_COOKIE, STATE_COOKIE = "jp_jace", "jp_oauth"
+GITHUB_REPO = "okjace/jace-passwords"
+EXT_GECKO_ID = "jace-passwords@okjace"
 # The browser extension signs in with the browser's own sign-in window (identity.launchWebAuthFlow),
 # whose final address is one of these; it gets its token in the URL fragment (never sent anywhere).
 EXT_REDIRECT = re.compile(r"^https://[a-z0-9-]+\.(chromiumapp\.org|extensions\.allizom\.org)/[A-Za-z0-9/_-]*$")
@@ -204,6 +206,8 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
             return self._send(200, {"user": {"id": str(u.get("sub") or u.get("id") or ""),
                                              "username": u.get("preferred_username") or u.get("username") or "",
                                              "name": u.get("name") or "", "picture": u.get("picture") or ""}})
+        if route in ("ext-updates", "ext-latest"):  # the browser extension's updates, from GitHub releases
+            return self._ext_updates(route)
         if route == "breaches":  # Have I Been Pwned's breached websites, for Watchtower (its API has no CORS)
             return self._breaches()
         if route == "vault-key":
@@ -215,6 +219,42 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
             status, r = _jace("GET", f"/api/oauth/sync/{COLLECTION}", token=token)
             return self._send(status, r)
         self._send(404, {"error": "not_found"})
+
+    _release_cache = {"at": 0, "data": None}
+
+    def _ext_updates(self, route):
+        """ext-updates: Firefox's update manifest (gecko update_url), so Jace Browser and Firefox update the
+        signed extension by themselves. ext-latest: the newest version, for copies that can't update."""
+        c = handler._release_cache
+        if not c["data"] or c["at"] < time.time() - 900:
+            req = urllib.request.Request(f"https://api.github.com/repos/{GITHUB_REPO}/releases?per_page=30",
+                                         headers={"User-Agent": UA, "Accept": "application/vnd.github+json"})
+            try:
+                with urllib.request.urlopen(req, timeout=20) as r:
+                    releases = json.loads(r.read())
+            except (urllib.error.URLError, TimeoutError, ValueError):
+                if not c["data"]:
+                    return self._send(502, {"error": "unreachable"})
+                releases = None
+            if releases is not None:
+                found = []
+                for rel in releases:
+                    if rel.get("draft") or rel.get("prerelease"):
+                        continue
+                    assets = {a["name"]: a["browser_download_url"] for a in rel.get("assets", [])}
+                    for name, url in assets.items():
+                        m = re.fullmatch(r"jace-passwords-(\d+\.\d+\.\d+)-signed\.xpi", name)
+                        if m:
+                            chrome = assets.get(f"jace-passwords-{m.group(1)}-chrome.zip")
+                            found.append({"version": m.group(1), "xpi": url, "chrome": chrome, "page": rel.get("html_url")})
+                uniq = {f["version"]: f for f in found}
+                c.update(at=time.time(), data=sorted(uniq.values(), key=lambda f: tuple(int(x) for x in f["version"].split("."))))
+        versions = c["data"] or []
+        if route == "ext-latest":
+            return self._send(200, versions[-1] if versions else {}, headers={"Cache-Control": "public, max-age=900"})
+        return self._send(200, {"addons": {EXT_GECKO_ID: {"updates": [
+            {"version": v["version"], "update_link": v["xpi"]} for v in versions]}}},
+            headers={"Cache-Control": "public, max-age=900"})
 
     _breach_cache = {"at": 0, "data": None}
 

@@ -172,7 +172,53 @@ def run_app() -> int:
             tray.showMessage(APP_NAME, f"Version {version} is available. Open the tray menu to get it.",
                              tray.MessageIcon.Information, 8000)
     win.bridge.update.connect(on_update)
-    check_updates(win.bridge)
+
+    from . import updater
+    if updater.can_self_update():
+        # Updates itself: download in the background, install on quit or from the tray.
+        updater.cleanup()
+
+        def on_ready(version, package):
+            win.pending_update = package
+            win.update_a.setText(f"Restart to update to {version}")
+            try:
+                win.update_a.triggered.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+            win.update_a.triggered.connect(win.quit_all_and_restart)
+            if tray:
+                tray.showMessage(APP_NAME, f"Version {version} is ready. It installs when you quit, or choose "
+                                 "\"Restart to update\" in the tray menu.", tray.MessageIcon.Information, 8000)
+
+        def restart_now():
+            from PySide6.QtWidgets import QApplication
+            win.quitting = True
+            state.vault.lock()
+            updater.apply(Path(win.pending_update))
+            QApplication.quit()
+        win.quit_all_and_restart = restart_now
+        win.bridge.update_ready.connect(on_ready)
+
+        def look():
+            import threading
+
+            def run():
+                try:
+                    info = updater.check()
+                    if info and info.get("url"):
+                        win.bridge.update_ready.emit(info["version"], str(updater.download(info)))
+                    elif info:
+                        win.bridge.update.emit(info["version"], info.get("page") or "")
+                except Exception:  # noqa: BLE001 - offline: try again later
+                    pass
+            threading.Thread(target=run, daemon=True).start()
+        from PySide6.QtCore import QTimer
+        look()
+        timer = QTimer(win)
+        timer.timeout.connect(look)
+        timer.start(6 * 3600 * 1000)
+    else:
+        check_updates(win.bridge)
 
     if not (_arg("--background") and tray):
         win.show()
@@ -184,6 +230,9 @@ def main() -> int:
         print(f"{APP_NAME} {APP_VERSION}")
         return 0
     try:
+        if _arg("--apply-update"):  # the new version, installing itself over the old one
+            from . import updater
+            return updater.apply_cli(sys.argv)
         if _arg("--self-test"):
             return self_test()
         if _arg("--install"):

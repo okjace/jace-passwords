@@ -152,4 +152,19 @@ async function renderGen(body) {
 }
 
 $("#lock").addEventListener("click", async () => { await send({ type: "lock" }); start(); });
+
+// Firefox and Jace Browser update this extension by themselves (gecko update_url). Chrome, Edge and
+// Brave only do that for Web Store installs, so a loaded copy says when there's a newer version.
+(async () => {
+  const m = B.runtime.getManifest();
+  if (m.browser_specific_settings?.gecko || /Firefox\//.test(navigator.userAgent)) return;
+  const r = await send({ type: "latest-version" });
+  const newer = (a, b) => { const x = a.split(".").map(Number), y = b.split(".").map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); return false; };
+  if (!r?.version || !newer(r.version, m.version)) return;
+  const bar = document.createElement("div");
+  bar.className = "update";
+  bar.innerHTML = `Jace Passwords ${r.version} is available. <a href="#">Download</a>`;
+  bar.querySelector("a").addEventListener("click", (e) => { e.preventDefault(); B.tabs.create({ url: r.page || r.chrome }); });
+  document.body.prepend(bar);
+})();
 start();

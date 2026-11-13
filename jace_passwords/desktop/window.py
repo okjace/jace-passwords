@@ -46,6 +46,7 @@ class Page(QWebEnginePage):
 class Bridge(QObject):
     show = Signal()
     update = Signal(str, str)  # version, url
+    update_ready = Signal(str, str)  # version, downloaded package (self-update)
 
 
 class MainWindow(QMainWindow):
@@ -174,7 +175,11 @@ def make_tray(win: MainWindow, app_state, icon: QIcon) -> QSystemTrayIcon | None
     def quit_all():
         win.quitting = True
         app_state.vault.lock()
+        if getattr(win, "pending_update", None):  # a downloaded update installs as you quit
+            from . import updater
+            updater.apply(Path(win.pending_update))
         QApplication.quit()
+    win.quit_all = quit_all
     quit_a.triggered.connect(quit_all)
     for a in (open_a, lock_a, None, auto_a, win.update_a, None, quit_a):
         menu.addSeparator() if a is None else menu.addAction(a)

@@ -241,6 +241,26 @@ jobs:
           if [ -z "$VERCEL_TOKEN" ]; then echo "::warning::VERCEL_TOKEN secret not set - web app not deployed"; exit 0; fi
           python3 packaging/deploy_vercel.py
 
+  chrome-store:
+    # Uploads each release to the Chrome Web Store, which updates Chrome/Edge/Brave installs from
+    # the store. Needs CWS_CLIENT_ID, CWS_CLIENT_SECRET, CWS_REFRESH_TOKEN, CWS_EXTENSION_ID secrets.
+    if: needs.version.outputs.publish == 'true'
+    needs: [version, release]
+    runs-on: ubuntu-latest
+    env:
+      CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+      CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+      CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+      CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Publish to the Chrome Web Store
+        run: |
+          if [ -z "$CWS_EXTENSION_ID" ] || [ -z "$CWS_REFRESH_TOKEN" ]; then
+            echo "::warning::Chrome Web Store secrets not set - skipping (see packaging/publish_chrome.py)"; exit 0
+          fi
+          python3 packaging/publish_chrome.py
+
   release:
     if: needs.version.outputs.publish == 'true'
     needs: [version, windows, macos, linux, extension]

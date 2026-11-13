@@ -168,6 +168,9 @@ async function handle(msg, sender) {
       return { keyMode: st.keyMode, needsSecretKey: st.needsSecretKey, jace: st.jace };
     }
     case "open-web": B.tabs.create({ url: WEB + "/" }); return { ok: true };
+    case "latest-version": {
+      try { return await (await fetch(`${WEB}/api/jace/ext-latest`)).json(); } catch { return {}; }
+    }
     case "unlock": return call("unlock", "POST", { password: msg.password });
     case "lock": return call("lock", "POST", {});
     case "match": return call("match?url=" + encodeURIComponent(msg.url));
