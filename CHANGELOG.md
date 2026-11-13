@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.3
+
+- **Adding or changing a master password works in Firefox and Jace Browser.** They refused a step of the password key calculation with "The operation failed for an operation-specific reason". It's now done in a way every browser accepts, with exactly the same result, so existing vaults open as before.
+
 ## 1.3.2
 
 - **Deleting a vault works:** the "Are you sure?" question is now the app's own box. Some app windows quietly answered "no" to the browser's, so nothing happened. The same goes for deleting items, passkeys and Trash.

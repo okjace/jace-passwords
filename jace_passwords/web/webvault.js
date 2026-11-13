@@ -37,9 +37,23 @@
   const clone = (o) => JSON.parse(JSON.stringify(o));
 
   // ---------- scrypt (RFC 7914), checked against Python's hashlib.scrypt ----------
+  // PBKDF2-HMAC-SHA256 with one iteration, built from HMAC blocks: T_i = HMAC(pw, salt || i).
+  // Firefox and Jace Browser refuse long native PBKDF2 outputs (scrypt asks for 1024 bytes) with
+  // "The operation failed for an operation-specific reason". Same bytes as the native one.
   async function pbkdf2(pw, salt, len) {
-    const k = await subtle.importKey("raw", pw, "PBKDF2", false, ["deriveBits"]);
-    return new Uint8Array(await subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: 1 }, k, len * 8));
+    if (!pw.length) { // HMAC can't take an empty key; a short native PBKDF2 output works everywhere
+      const k = await subtle.importKey("raw", pw, "PBKDF2", false, ["deriveBits"]);
+      return new Uint8Array(await subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: 1 }, k, len * 8));
+    }
+    const key = await subtle.importKey("raw", pw, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const out = new Uint8Array(Math.ceil(len / 32) * 32);
+    const msg = new Uint8Array(salt.length + 4);
+    msg.set(salt);
+    for (let i = 1; (i - 1) * 32 < len; i++) {
+      new DataView(msg.buffer).setUint32(salt.length, i);
+      out.set(new Uint8Array(await subtle.sign("HMAC", key, msg)), (i - 1) * 32);
+    }
+    return out.slice(0, len);
   }
   function salsa(B, x) {
     x.set(B);
