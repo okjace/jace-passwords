@@ -175,6 +175,8 @@
     const st = await send({ type: "status" });
     if (st.error === "offline") return (menu.innerHTML = `<div class="hd">${ICON} Jace Passwords</div><div class="msg">Open the Jace Passwords app to use autofill.</div>`);
     if (st.error === "unpaired") return (menu.innerHTML = `<div class="hd">${ICON} Jace Passwords</div><div class="msg">Click the Jace Passwords toolbar button to connect this browser.</div>`);
+    if (st.error === "signedout" || st.error === "novault") return (menu.innerHTML = `<div class="hd">${ICON} Jace Passwords</div><div class="msg">${esc(st.error === "signedout" ? "Click the Jace Passwords toolbar button to sign in with Jace." : "Create your vault in Jace Passwords first.")}</div>`);
+    if (st.error) return (menu.innerHTML = `<div class="hd">${ICON} Jace Passwords</div><div class="msg">${esc(st.message || "Something went wrong.")}</div>`);
     if (st.locked) {
       menu.innerHTML = `<div class="hd">${ICON} Jace Passwords is locked</div><form style="padding:4px 8px 8px"><input type="password" placeholder="Master password" autocomplete="off"><div class="msg err" style="padding:2px 0;color:#e03e52"></div><button class="btn" style="width:100%">Unlock</button></form>`;
       const f = menu.querySelector("form");

@@ -12,7 +12,7 @@ WEB = Path(__file__).resolve().parent.parent / "jace_passwords" / "web"
 
 class WebData(unittest.TestCase):
     def test_words_js_matches_python(self):
-        data = json.loads(re.search(r"window\.JP_DATA = (\{.*\});", (WEB / "words.js").read_text()).group(1))
+        data = json.loads(re.search(r"globalThis\.JP_DATA = (\{.*\});", (WEB / "words.js").read_text()).group(1))
         self.assertEqual(data["words"], WORDS)
         self.assertEqual(set(data["common"]), COMMON)
         self.assertEqual(data["symbols"], SYMBOLS)
@@ -28,3 +28,11 @@ class WebData(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExtensionShares(unittest.TestCase):
+    def test_extension_has_the_current_vault_engine(self):
+        ext = WEB.parent.parent / "extension" / "vault"
+        for name in ("webvault.js", "words.js"):
+            self.assertEqual((ext / name).read_bytes(), (WEB / name).read_bytes(),
+                             f"extension/vault/{name} is out of date: cp jace_passwords/web/{name} extension/vault/")

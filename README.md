@@ -31,13 +31,15 @@ Get everything from the [latest release](https://github.com/okjace/jace-password
 | **Jace Browser / Firefox** | `jace-passwords-…-signed.xpi`: go to `about:addons`, click the gear icon, then **Install Add-on From File…** |
 | **Chrome / Edge / Brave** | `jace-passwords-…-chrome.zip`: unzip it, then go to `chrome://extensions`, turn on Developer mode and click **Load unpacked** |
 
+**The browser extension works on its own:** click its toolbar button, then **Sign in with Jace**, and it opens the vault from your Jace account. You don't need the desktop app. If you do have the desktop app, you can pair the extension with it instead.
+
 **On the web**, there's nothing to install: open https://jace-passwords.vercel.app and sign in with Jace. If you're already signed in to Jace, for example in Jace Browser, it signs you in automatically. Your vault is decrypted only inside your browser, with the same encryption as the desktop app, so both open the same synced vault. The server only handles Jace sign-in and passes the already-encrypted vault to Jace. For autofill and passkeys, use the desktop app with the extension.
 
 The desktop app sets itself up the way Jace Launcher does. The first time you open the download, a setup wizard asks where to install it and adds shortcuts. Depending on the system, that's the applications menu, Start menu, Dock, desktop, terminal command, Windows "Installed apps" or app centers.
 
 The setup can also start Jace Passwords in the tray when you sign in to your computer, so the browser extension can autofill without the window open. Closing the window leaves it in the tray, and the tray menu has **Lock** and **Quit**. Uninstall it from the app menu, from Windows Settings, or by running `jace-passwords --uninstall`. Your vault is kept unless you choose to delete it.
 
-After installing the extension, open **Settings → Browser extension → Get pairing code** in the app and enter the code in the extension.
+After installing the extension, click its toolbar button and **Sign in with Jace**. To pair it with the desktop app instead, open **Settings → Browser extension → Get pairing code** in the app and enter the code in the extension.
 
 ## Run from source
 

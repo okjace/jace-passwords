@@ -1,19 +1,18 @@
 "use strict";
-/* Jace Passwords on the web (Vercel). The whole vault runs in your browser: the same
- * format, keys and encryption as the desktop app (jace_passwords/crypto.py, vault.py), so
- * both open the vault you sync through Jace. Your master password and Secret Key never
- * leave this page; the server only relays Jace sign-in and the already-encrypted vault.
+/* The Jace Passwords vault engine in JavaScript: the same format, keys and encryption as the
+ * desktop app (jace_passwords/crypto.py, vault.py, passkeys.py), so every copy opens the vault
+ * you sync through Jace. Your master password and Secret Key never leave this code.
  *
- * On the desktop app (http://127.0.0.1:47620) this file does nothing. */
+ *   JPCore.create(env)  one vault: env gives it storage, a way to reach the Jace Passwords site
+ *                       (/api/jace/*), and a few hooks. Used by:
+ *     - the web app (bottom of this file: localStorage, same-site cookie)
+ *     - the standalone browser extension (extension/background.js: extension storage, Bearer token)
+ * On the desktop app (http://127.0.0.1:47620) the web app part does nothing. */
 (() => {
-  const isWeb = location.protocol === "https:" || /[?&]web=1\b/.test(location.search) || sessionStorage.getItem("jp-web") === "1";
-  if (!isWeb) return;
-  try { sessionStorage.setItem("jp-web", "1"); } catch { /* private mode */ }
-
-  const D = window.JP_DATA;
+  const D = globalThis.JP_DATA;
   const enc = new TextEncoder(), dec = new TextDecoder();
   const subtle = crypto.subtle;
-  const VERSION = "1.0.3";
+  const VERSION = "1.1.0";
   const FORMAT = "jace-passwords/1";
   const AAD_KEY = enc.encode("jace-passwords:key"), AAD_DATA = enc.encode("jace-passwords:data");
   const KDF = { name: "scrypt", n: 131072, r: 8, p: 1 };
@@ -133,11 +132,9 @@
     } catch { throw new ApiError("Wrong master password or Secret Key."); }
   }
 
-  // ---------- storage on this device ----------
-  const store = {
-    get(k, d = null) { try { const v = localStorage.getItem("jp-" + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
-    set(k, v) { try { v === null ? localStorage.removeItem("jp-" + k) : localStorage.setItem("jp-" + k, JSON.stringify(v)); } catch { throw new ApiError("This browser won't let Jace Passwords save your vault (private mode?)."); } },
-  };
+  function create(env) {
+  // ---------- storage on this device (env.store: get(key, default) / set(key, value|null)) ----------
+  const store = env.store;
   const device = () => store.get("device", {});
   const updateDevice = (c) => { const d = { ...device(), ...c }; for (const k in c) if (c[k] === null) delete d[k]; store.set("device", d); return d; };
 
@@ -281,13 +278,8 @@
   // ---------- Jace (through this site's /api/jace function) ----------
   const sync = { status: "idle", at: null, error: null, version: device().syncVersion || 0 };
   let jaceUser;
-  async function jace(method, path, body, headers = {}) {
-    const r = await fetch("/api/jace/" + path, { method, credentials: "same-origin",
-      headers: { "X-Jace-Passwords": "1", ...(body ? { "Content-Type": "application/json" } : {}), ...headers },
-      body: body ? JSON.stringify(body) : undefined });
-    const j = await r.json().catch(() => ({}));
-    return { status: r.status, body: j };
-  }
+  // env.jace(method, path, body, headers) -> {status, body}: the Jace Passwords site's /api/jace/<path>
+  const jace = (method, path, body, headers = {}) => env.jace(method, path, body, headers);
   let mePromise = null;
   function me() {
     if (jaceUser !== undefined) return Promise.resolve(jaceUser);
@@ -298,15 +290,7 @@
     });
     return mePromise;
   }
-  // Silent sign-in (Jace's prompt=none), once per visit: if you're already signed in to Jace
-  // (Jace Browser does this for Jace's own apps), you're signed in here too, with no button.
-  {
-    let tried = false;
-    try { tried = sessionStorage.getItem("jp-silent") === "1"; sessionStorage.setItem("jp-silent", "1"); } catch { tried = true; }
-    if (!tried && !/[?&](signin_error|web=1)\b/.test(location.search)) {
-      me().then((u) => { if (!u) location.replace("/api/jace/signin?prompt=none"); });
-    }
-  }
+  const forgetUser = () => { jaceUser = undefined; mePromise = null; };
   const decodeVault = (payload) => JSON.parse(dec.decode(b64d(payload)));
   async function pull() {
     const r = await jace("GET", "sync");
@@ -542,21 +526,13 @@
 
   // ---------- the API the app window calls (server.py's /api/*), answered in the page ----------
   async function state() {
-    const st = { app: "Jace Passwords", version: VERSION, web: true, setup: exists(), locked: !V.data, hasSecretKey: !!device().secretKey, keyMode: exists() ? keyMode(store.get("vault")) : null,
+    const st = { app: "Jace Passwords", version: VERSION, web: !!env.web, extension: !!env.extension, setup: exists(), locked: !V.data, hasSecretKey: !!device().secretKey, keyMode: exists() ? keyMode(store.get("vault")) : null,
       usesSecretKey: exists() ? usesSecretKey(store.get("vault")) : null,
       needsSecretKey: exists() && usesSecretKey(store.get("vault")) && !device().secretKey,
       jace: await me(), vaultAccount: store.get("vault")?.account || null, sync, signinError: signinError, settings: V.data ? settings() : null };
     return st;
   }
-  let signinError = null;
-  {
-    const u = new URL(location.href);
-    if (u.searchParams.has("signin_error")) {
-      signinError = u.searchParams.get("signin_error");
-      u.searchParams.delete("signin_error");
-      history.replaceState(null, "", u.pathname + u.search);
-    }
-  }
+  let signinError = env.signinError || null;
 
   async function api(method, route, body = {}) {
     const [path, qs] = route.split("?");
@@ -570,8 +546,8 @@
       case "strength": return strength(body.password || "");
       case "card-check": { const n = String(body.number || "").replace(/\D/g, ""); return { brand: cardBrand(n), valid: luhn(n) }; }
       case "jace":
-        if (arg === "signin") return { url: "/api/jace/signin" };
-        if (arg === "signout") { await jace("POST", "signout"); jaceUser = null; try { sessionStorage.setItem("jp-silent", "1"); } catch { /* */ } Object.assign(sync, { status: "idle", error: null }); return { ok: true }; }
+        if (arg === "signin") return { url: env.signinUrl || "/api/jace/signin" };
+        if (arg === "signout") { await (env.signout ? env.signout() : jace("POST", "signout")); jaceUser = null; Object.assign(sync, { status: "idle", error: null }); return { ok: true }; }
         if (arg === "remote") {
           if (!(await me())) throw new ApiError("Sign in with Jace first.");
           const [remote] = await pull();
@@ -725,12 +701,249 @@
     throw new ApiError("Not found.");
   }
 
+  // ---------- autofill and passkeys for the browser extension (server.py ext_api, passkeys.py) ----------
+  function matches(item, url) { // 0 no match, 1 same site, 2 same host (security.matches)
+    if (item.type !== "login" || item.deletedAt) return 0;
+    const h = hostname(url), s = site(url);
+    let best = 0;
+    for (const u of item.fields?.urls || []) {
+      const uh = hostname(u);
+      if (uh && uh === h) return 2;
+      if (s && site(u) === s) best = 1;
+    }
+    return best;
+  }
+  function summary(i) {
+    const f = i.fields || {};
+    const s = { id: i.id, type: i.type, title: i.title || "", vaultId: i.vaultId, favorite: !!i.favorite };
+    if (i.type === "login") Object.assign(s, { username: f.username || "", urls: f.urls || [], hasTotp: !!f.totp, signInWith: f.signInWith || null,
+      hasPassword: !!f.password, passkeys: (f.passkeys || []).length });
+    else if (i.type === "card") { const n = String(f.number || "").replace(/\D/g, ""); Object.assign(s, { last4: n.slice(-4), brand: f.brand || cardBrand(n), cardType: f.cardType || "credit", cardholder: f.cardholder || "" }); }
+    else if (i.type === "identity") Object.assign(s, { name: f.fullName || "", email: f.email || "" });
+    else if (i.type === "alias") s.alias = f.alias || "";
+    return s;
+  }
+
+  const cat = (...parts) => { const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0)); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; } return out; };
+  const b64u = (u8) => b64e(u8).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const b64uDec = (s) => b64d(String(s).replace(/-/g, "+").replace(/_/g, "/") + "===".slice((String(s).length + 3) % 4));
+  const sha256 = async (u8) => new Uint8Array(await subtle.digest("SHA-256", u8));
+  const AAGUID = Uint8Array.from("6a61636570617373776f7264732d3031".match(/../g).map((h) => parseInt(h, 16)));
+  function cborHead(major, n) {
+    if (n < 24) return [major << 5 | n];
+    if (n < 256) return [major << 5 | 24, n];
+    if (n < 65536) return [major << 5 | 25, n >> 8, n & 255];
+    return [major << 5 | 26, (n >>> 24) & 255, (n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  function cbor(v) {
+    if (typeof v === "number") return Uint8Array.from(v >= 0 ? cborHead(0, v) : cborHead(1, -1 - v));
+    if (v instanceof Uint8Array) return cat(Uint8Array.from(cborHead(2, v.length)), v);
+    if (typeof v === "string") { const e = enc.encode(v); return cat(Uint8Array.from(cborHead(3, e.length)), e); }
+    if (Array.isArray(v)) return cat(Uint8Array.from(cborHead(4, v.length)), ...v.map(cbor));
+    const entries = v instanceof Map ? [...v] : Object.entries(v);
+    return cat(Uint8Array.from(cborHead(5, entries.length)), ...entries.flatMap(([k, x]) => [cbor(k), cbor(x)]));
+  }
+  class PasskeyError extends Error { constructor(msg, name = "NotAllowedError") { super(`${name}: ${msg}`); } }
+  function checkOrigin(origin, rpId) {
+    let u;
+    try { u = new URL(origin); } catch { throw new PasskeyError("Bad origin.", "SecurityError"); }
+    const host = u.hostname.toLowerCase(), rp = String(rpId || "").toLowerCase();
+    const local = host === "localhost" || host.endsWith(".localhost");
+    if (u.protocol !== "https:" && !(u.protocol === "http:" && local)) throw new PasskeyError("Passkeys only work on secure (https) sites.", "SecurityError");
+    if (!rp || !(host === rp || (host.endsWith("." + rp) && rp.includes(".")))) throw new PasskeyError(`${host} can't use passkeys for ${rp}.`, "SecurityError");
+  }
+  function derSignature(raw) {
+    const int = (b) => { let i = 0; while (i < b.length - 1 && b[i] === 0) i++; b = b.slice(i); if (b[0] & 0x80) b = cat(Uint8Array.of(0), b); return cat(Uint8Array.of(2, b.length), b); };
+    const r = int(raw.slice(0, 32)), s = int(raw.slice(32));
+    return cat(Uint8Array.of(0x30, r.length + s.length), r, s);
+  }
+  async function authData(rpId, flags, attested = new Uint8Array()) {
+    return cat(await sha256(enc.encode(rpId)), Uint8Array.of(flags, 0, 0, 0, 0), attested);
+  }
+  function passkeysFor(rpId) {
+    const ids = new Set(visible().map((i) => i.id));
+    const out = [];
+    for (const i of require_().items) if (ids.has(i.id)) for (const p of i.fields?.passkeys || []) if (p.rpId === rpId) out.push([i, p]);
+    return out;
+  }
+  async function passkeyCreate({ rpId, origin, clientDataJSON, user = {}, algs = [], rpName = "", exclude = [] }) {
+    checkOrigin(origin, rpId);
+    const cdj = b64uDec(clientDataJSON), cd = JSON.parse(dec.decode(cdj));
+    if (cd.type !== "webauthn.create" || cd.origin !== origin) throw new PasskeyError("Bad client data.", "SecurityError");
+    if (algs.length && !algs.includes(-7)) throw new PasskeyError("This site doesn't accept the passkey type Jace Passwords makes.", "NotSupportedError");
+    const existing = new Set(passkeysFor(rpId).map(([, p]) => p.credentialId));
+    if (exclude.some((id) => existing.has(id))) throw new PasskeyError("You already have a passkey for this account in Jace Passwords.", "InvalidStateError");
+    const kp = await subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+    const raw = new Uint8Array(await subtle.exportKey("raw", kp.publicKey));
+    const credId = rand(16);
+    const cose = cbor(new Map([[1, 2], [3, -7], [-1, 1], [-2, raw.slice(1, 33)], [-3, raw.slice(33, 65)]]));
+    const attested = cat(AAGUID, Uint8Array.of(0, credId.length), credId, cose);
+    const ad = await authData(rpId, 0x5d, attested);
+    const stored = { credentialId: b64u(credId), rpId, userHandle: user.id || "", userName: String(user.name || "").slice(0, 200),
+      userDisplayName: String(user.displayName || "").slice(0, 200), alg: -7,
+      privateKey: b64e(new Uint8Array(await subtle.exportKey("pkcs8", kp.privateKey))), createdAt: nowIso() };
+    // save it on the login for that site and username (vault.save_passkey)
+    for (const [i, p] of passkeysFor(rpId)) if (p.userHandle === stored.userHandle) i.fields.passkeys = i.fields.passkeys.filter((x) => x !== p);
+    const url = "https://" + rpId;
+    let target = visible().find((i) => matches(i, url) && ["", stored.userName].includes(i.fields?.username || ""));
+    target = target ? getItem(target.id) : createItem({ type: "login", title: rpName || hostname(url), fields: { username: stored.userName, urls: [url] } });
+    target.fields ||= {};
+    if (!target.fields.username) target.fields.username = stored.userName;
+    (target.fields.passkeys ||= []).push(stored);
+    target.updatedAt = nowIso();
+    await changed();
+    return { credentialId: stored.credentialId, clientDataJSON: b64u(cdj), attestationObject: b64u(cbor(new Map([["fmt", "none"], ["attStmt", new Map()], ["authData", ad]]))),
+      authenticatorData: b64u(ad), publicKey: b64u(new Uint8Array(await subtle.exportKey("spki", kp.publicKey))), publicKeyAlgorithm: -7,
+      transports: ["internal", "hybrid"], itemId: target.id, title: target.title };
+  }
+  async function passkeyGet({ rpId, origin, clientDataJSON, credentialId }) {
+    checkOrigin(origin, rpId);
+    const cdj = b64uDec(clientDataJSON), cd = JSON.parse(dec.decode(cdj));
+    if (cd.type !== "webauthn.get" || cd.origin !== origin) throw new PasskeyError("Bad client data.", "SecurityError");
+    const hit = passkeysFor(rpId).find(([, p]) => p.credentialId === credentialId);
+    if (!hit) throw new PasskeyError("That passkey isn't in your vault.");
+    const [item, p] = hit;
+    const key = await subtle.importKey("pkcs8", b64d(p.privateKey), { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+    const ad = await authData(rpId, 0x1d);
+    const sig = new Uint8Array(await subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, cat(ad, await sha256(cdj))));
+    p.lastUsedAt = item.lastUsedAt = nowIso();
+    item.useCount = (item.useCount || 0) + 1;
+    await changed();
+    return { credentialId: p.credentialId, clientDataJSON: b64u(cdj), authenticatorData: b64u(ad), signature: b64u(derSignature(sig)), userHandle: p.userHandle || "" };
+  }
+
+  async function extApi(route, body = {}) {
+    checkAutoLock();
+    if (route === "status") return { locked: !V.data, setup: exists(), account: await me(), version: VERSION, keyMode: exists() ? keyMode(store.get("vault")) : null };
+    if (route === "unlock") { await unlock(body.password || "", null); scheduleSync(100); return { ok: true }; }
+    if (route === "lock") { lock(); return { ok: true }; }
+    if (route === "generate") { const pw = generate(body || {}); return { password: pw, strength: strength(pw) }; }
+    require_();
+    if (route === "match") {
+      const url = body.url || "";
+      const scored = visible().map((i) => [matches(i, url), i]).filter(([n]) => n).sort((a, b) => b[0] - a[0] || a[1].title.localeCompare(b[1].title));
+      return { site: site(url), logins: scored.map(([, i]) => summary(i)),
+        cards: visible().filter((i) => i.type === "card").map(summary), identities: visible().filter((i) => i.type === "identity").map(summary) };
+    }
+    if (route === "search") {
+      const q = String(body.q || "").toLowerCase();
+      return visible().filter((i) => [i.title, i.fields?.username, ...(i.fields?.urls || [])].join(" ").toLowerCase().includes(q)).slice(0, 50).map(summary);
+    }
+    if (route === "fill") {
+      const it = getItem(body.id || ""), f = it.fields || {};
+      it.lastUsedAt = nowIso(); it.useCount = (it.useCount || 0) + 1; await save();
+      const out = { type: it.type, title: it.title };
+      if (it.type === "login") { out.username = f.username || ""; out.password = f.password || ""; if (f.totp) { try { out.totp = (await totpCode(f.totp)).code; } catch { /* bad secret */ } } }
+      else if (it.type === "card") for (const k of ["cardholder", "number", "expMonth", "expYear", "cvv", "zip"]) out[k] = f[k] || "";
+      else if (it.type === "identity") for (const k of ["fullName", "firstName", "lastName", "email", "phone", "address1", "address2", "city", "state", "zip", "country", "company", "birthday"]) out[k] = f[k] || "";
+      return out;
+    }
+    if (route === "save-check" || route === "save") {
+      const { url = "", username = "", password = "" } = body;
+      for (const i of visible()) {
+        if (matches(i, url) && (i.fields?.username || "") === username) {
+          if (route === "save-check") return { status: i.fields?.password === password ? "unchanged" : "update", title: i.title };
+          if (i.fields?.password === password) return { status: "unchanged", id: i.id };
+          updateItem(i.id, { fields: { ...i.fields, password } }); await changed();
+          return { status: "updated", id: i.id };
+        }
+      }
+      if (route === "save-check") return { status: "new", title: site(url) };
+      if (!password) throw new ApiError("No password to save.");
+      const host = hostname(url);
+      const it = createItem({ type: "login", title: body.title || site(url) || host, fields: { username, password, urls: host ? ["https://" + host] : [] } });
+      await changed();
+      return { status: "created", id: it.id };
+    }
+    if (route === "passkey/list") {
+      const allow = new Set(body.allow || []);
+      return passkeysFor(body.rpId || "").filter(([, p]) => !allow.size || allow.has(p.credentialId))
+        .map(([i, p]) => ({ credentialId: p.credentialId, userName: p.userName || i.fields?.username || "", userDisplayName: p.userDisplayName || "", title: i.title, itemId: i.id }));
+    }
+    if (route === "passkey/create") return passkeyCreate(body);
+    if (route === "passkey/get") return passkeyGet(body);
+    throw new ApiError("Not found.");
+  }
+
   // auto-lock after the chosen idle time
-  setInterval(() => {
+  function checkAutoLock() {
     if (!V.data) return;
     const m = +settings().autoLockMinutes;
     if (m && Date.now() - V.lastActivity > m * 60000) lock();
-  }, 10000);
+  }
+  setInterval(checkAutoLock, 10000);
 
-  window.JPWeb = { api, scrypt, deriveKek, totpCode, _vault: V };
+  // ---------- keeping an unlocked vault across restarts of the extension's background ----------
+  function exportSession() { return V.key ? { key: b64e(V.key), lastActivity: V.lastActivity } : null; }
+  async function restoreSession(sess) {
+    const f = store.get("vault");
+    if (!sess?.key || !f || V.data) return !!V.data;
+    try {
+      const key = b64d(sess.key);
+      V.data = JSON.parse(dec.decode(await openSealed(key, f.data, AAD_DATA)));
+      V.key = key;
+      V.meta = Object.fromEntries(Object.entries(f).filter(([k]) => k !== "data" && k !== "updatedAt"));
+      V.lastActivity = sess.lastActivity || Date.now();
+      checkAutoLock();
+    } catch { V.key = null; V.data = null; }
+    return !!V.data;
+  }
+
+  // Save the vault from your Jace account here (still encrypted), ready to unlock.
+  async function fetchRemote() {
+    const [remote, version] = await pull();
+    if (!remote) return false;
+    store.set("vault", remote);
+    updateDevice({ syncVersion: version });
+    return true;
+  }
+
+  return { api, ext: extApi, fetchRemote, me, forgetUser, lock, isUnlocked: () => !!V.data, exists, keyMode: () => (exists() ? keyMode(store.get("vault")) : null),
+    exportSession, restoreSession, checkAutoLock, syncNow, _vault: V };
+  } // create
+
+  globalThis.JPCore = { create, scrypt, deriveKek };
+
+  // ---------- the web app (https://jace-passwords.vercel.app) ----------
+  if (typeof window === "undefined" || typeof location === "undefined" || !location.protocol.startsWith("http")) return;
+  const isWeb = location.protocol === "https:" || /[?&]web=1\b/.test(location.search) || sessionStorage.getItem("jp-web") === "1";
+  if (!isWeb) return;
+  try { sessionStorage.setItem("jp-web", "1"); } catch { /* private mode */ }
+  let signinError = null;
+  {
+    const u = new URL(location.href);
+    if (u.searchParams.has("signin_error")) {
+      signinError = u.searchParams.get("signin_error");
+      u.searchParams.delete("signin_error");
+      history.replaceState(null, "", u.pathname + u.search);
+    }
+  }
+  const web = create({
+    web: true,
+    signinError,
+    store: {
+      get(k, d = null) { try { const v = localStorage.getItem("jp-" + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+      set(k, v) { try { v === null ? localStorage.removeItem("jp-" + k) : localStorage.setItem("jp-" + k, JSON.stringify(v)); } catch { throw new Error("This browser won't let Jace Passwords save your vault (private mode?)."); } },
+    },
+    async jace(method, path, body, headers = {}) {
+      const r = await fetch("/api/jace/" + path, { method, credentials: "same-origin",
+        headers: { "X-Jace-Passwords": "1", ...(body ? { "Content-Type": "application/json" } : {}), ...headers },
+        body: body ? JSON.stringify(body) : undefined });
+      return { status: r.status, body: await r.json().catch(() => ({})) };
+    },
+    async signout() {
+      await fetch("/api/jace/signout", { method: "POST", credentials: "same-origin", headers: { "X-Jace-Passwords": "1" } });
+      try { sessionStorage.setItem("jp-silent", "1"); } catch { /* */ }
+    },
+  });
+  // Silent sign-in (Jace's prompt=none), once per visit: if you're already signed in to Jace
+  // (Jace Browser does this for Jace's own apps), you're signed in here too, with no button.
+  {
+    let tried = false;
+    try { tried = sessionStorage.getItem("jp-silent") === "1"; sessionStorage.setItem("jp-silent", "1"); } catch { tried = true; }
+    if (!tried && !/[?&](signin_error|web=1)\b/.test(location.search)) {
+      web.me().then((u) => { if (!u) location.replace("/api/jace/signin?prompt=none"); });
+    }
+  }
+  window.JPWeb = web;
 })();

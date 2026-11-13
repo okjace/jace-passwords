@@ -1,6 +1,86 @@
-/* Jace Passwords extension — talks to the Jace Passwords app on this computer. */
+/* Jace Passwords extension.
+ * Two ways to work:
+ *   desktop     paired with the Jace Passwords app on this computer (it holds the vault)
+ *   standalone  on its own: the vault engine (vault/webvault.js, the same as the web app's) runs
+ *               here, signed in with Jace through the Jace Passwords site, synced through Jace. */
 const B = globalThis.browser ?? globalThis.chrome;
 const APP = "http://127.0.0.1:47620";
+const WEB = "https://jace-passwords.vercel.app";
+if (typeof importScripts === "function" && !globalThis.JPCore) importScripts("vault/words.js", "vault/webvault.js");
+
+// ---------- standalone: the vault engine, with extension storage and the extension's own Jace token ----------
+let cache = {};
+let persisting = Promise.resolve();
+const sessionArea = B.storage.session; // memory only, cleared when the browser closes (keeps you unlocked meanwhile)
+async function jaceToken() {
+  const t = (await B.storage.local.get("jaceToken")).jaceToken;
+  return t && (!t.expires || t.expires > Date.now()) ? t.token : null;
+}
+const engineReady = (async () => {
+  cache = (await B.storage.local.get("jpvault")).jpvault || {};
+  const engine = JPCore.create({
+    extension: true,
+    store: {
+      get: (k, d = null) => (k in cache ? cache[k] : d),
+      set(k, v) {
+        if (v === null) delete cache[k]; else cache[k] = v;
+        const snapshot = JSON.parse(JSON.stringify(cache));
+        persisting = persisting.then(() => B.storage.local.set({ jpvault: snapshot }));
+      },
+    },
+    async jace(method, path, body, headers = {}) {
+      const token = await jaceToken();
+      if (!token) return { status: 401, body: { error: "signed_out", error_description: "Sign in with Jace first." } };
+      const r = await fetch(`${WEB}/api/jace/${path}`, { method,
+        headers: { Authorization: "Bearer " + token, "X-Jace-Passwords": "1", ...(body ? { "Content-Type": "application/json" } : {}), ...headers },
+        body: body ? JSON.stringify(body) : undefined });
+      return { status: r.status, body: await r.json().catch(() => ({})) };
+    },
+    async signout() { await B.storage.local.remove("jaceToken"); },
+  });
+  const sess = sessionArea ? (await sessionArea.get("jpSession")).jpSession : null;
+  if (sess) await engine.restoreSession(sess);
+  return engine;
+})();
+async function rememberSession(engine) {
+  if (sessionArea) await sessionArea.set({ jpSession: engine.exportSession() });
+}
+
+async function signInWithJace() {
+  const redirect = B.identity.getRedirectURL();
+  const final = await B.identity.launchWebAuthFlow({ url: `${WEB}/api/jace/signin?ext_redirect=${encodeURIComponent(redirect)}`, interactive: true });
+  const frag = new URLSearchParams(new URL(final).hash.slice(1));
+  const token = frag.get("token");
+  if (!token) throw new Error(frag.get("error") || "Jace didn't sign you in.");
+  await B.storage.local.set({ jaceToken: { token, expires: Date.now() + (+frag.get("expires_in") || 86400) * 1000 } });
+  const engine = await engineReady;
+  engine.forgetUser();
+  await fetchVault(engine);
+  return { ok: true };
+}
+
+// The vault on your Jace account, saved here still encrypted, so you can unlock it.
+async function fetchVault(engine) {
+  if (engine.exists()) return true;
+  return engine.fetchRemote().catch(() => false);
+}
+
+async function standalone(route, body = {}) {
+  const engine = await engineReady;
+  try {
+    if (route === "status") {
+      if (!(await jaceToken())) return { error: "signedout", message: "Sign in with Jace in the Jace Passwords toolbar button." };
+      if (!engine.exists() && !(await fetchVault(engine))) return { error: "novault", message: "Create your vault first." };
+    }
+    const r = await engine.ext(route, body);
+    await rememberSession(engine);
+    return r;
+  } catch (e) {
+    await rememberSession(engine);
+    if (e.locked) return { error: "locked", message: "Jace Passwords is locked." };
+    return { error: "failed", message: e.message || String(e) };
+  }
+}
 
 const lastFilled = {};   // tabId -> { id, site } so the 2FA field can get the right code
 const pendingSave = {};  // tabId -> { url, username, password, at }
@@ -22,6 +102,10 @@ async function token() {
 
 async function call(path, method = "GET", body) {
   const t = await token();
+  if (!t) { // not paired with the desktop app: standalone
+    const [route, qs] = path.split("?");
+    return standalone(route, { ...Object.fromEntries(new URLSearchParams(qs || "")), ...(body || {}) });
+  }
   let r;
   try {
     r = await fetch(APP + "/ext/" + path, {
@@ -49,6 +133,29 @@ async function handle(msg, sender) {
       return r;
     }
     case "unpair": await B.storage.local.remove("token"); return { ok: true };
+    case "mode": return { mode: (await token()) ? "desktop" : "standalone", signedIn: !!(await jaceToken()) };
+    case "jace-signin":
+      if (sender.tab) return { error: "forbidden" };
+      try { return await signInWithJace(); } catch (e) { return { error: "failed", message: e.message || String(e) }; }
+    case "jace-signout": {
+      if (sender.tab) return { error: "forbidden" };
+      const engine = await engineReady;
+      engine.lock(); await rememberSession(engine);
+      await B.storage.local.remove("jaceToken"); engine.forgetUser();
+      return { ok: true };
+    }
+    case "standalone-unlock": {
+      if (sender.tab) return { error: "forbidden" };
+      const engine = await engineReady;
+      try { await engine.api("POST", "unlock", { password: msg.password || "", secretKey: msg.secretKey || null }); await rememberSession(engine); return { ok: true }; }
+      catch (e) { return { error: "failed", message: e.message || String(e) }; }
+    }
+    case "standalone-info": {
+      const engine = await engineReady;
+      const st = await engine.api("GET", "state").catch(() => ({}));
+      return { keyMode: st.keyMode, needsSecretKey: st.needsSecretKey, jace: st.jace };
+    }
+    case "open-web": B.tabs.create({ url: WEB + "/" }); return { ok: true };
     case "unlock": return call("unlock", "POST", { password: msg.password });
     case "lock": return call("lock", "POST", {});
     case "match": return call("match?url=" + encodeURIComponent(msg.url));

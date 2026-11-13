@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.0
+
+- **The browser extension works on its own,** with no desktop app needed:
+  - Click the toolbar button, then **Sign in with Jace**. It opens your vault from your Jace account and unlocks it with your master password, or with **Unlock with Jace** if you skipped the password.
+  - Autofill, saving logins, 2FA codes and passkeys all work, and every change syncs through Jace. Passkeys made in the extension also work in the desktop app, and the other way round.
+  - While unlocked, the key is kept only in the browser's memory until you lock or close the browser.
+- **Still works with the desktop app:** if the extension is paired with the desktop app, it uses the app as before. **Disconnect** switches it to standalone, and **Connect to the desktop app** switches it back.
+- **One vault engine:** the web app and the extension share it, and it uses exactly the desktop app's vault format.
+
 ## 1.0.3
 
 - **Skip the master password:** when you're signed in with Jace, you can choose **Skip: unlock with my Jace account** instead of making a master password. Your vault then unlocks whenever you're signed in to Jace, with **Unlock with Jace** on the lock screen, and on the web and new devices too.

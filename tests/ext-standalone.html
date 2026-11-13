@@ -1,0 +1,75 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Standalone extension test</title>
+<pre id="out">running…</pre>
+<script>
+// Stand-ins for the browser extension APIs that extension/background.js uses.
+const mem = () => { const d = {}; return { async get(k) { return k in d ? { [k]: d[k] } : {}; }, async set(o) { Object.assign(d, structuredClone(o)); }, async remove(k) { delete d[k]; }, _d: d }; };
+const ev = () => ({ addListener() {} });
+window.chrome = {
+  storage: { local: mem(), session: mem() },
+  runtime: { onMessage: ev(), onInstalled: ev() },
+  tabs: { onRemoved: ev(), create() {}, sendMessage: async () => {} },
+  contextMenus: { onClicked: ev(), create() {} },
+  commands: { onCommand: ev() },
+  identity: {
+    getRedirectURL: () => "https://abcdefgh.chromiumapp.org/",
+    // the real site function is asked to start sign-in; the fake Jace "signs in" with token "good"
+    async launchWebAuthFlow({ url }) {
+      const u = new URL(url);
+      if (!/^https:\/\/abcdefgh\.chromiumapp\.org\/$/.test(u.searchParams.get("ext_redirect"))) throw new Error("bad redirect");
+      return "https://abcdefgh.chromiumapp.org/#token=good&expires_in=3600";
+    },
+  },
+};
+// The extension calls https://jace-passwords.vercel.app/api/jace/...; send that to this test server.
+const realFetch = window.fetch.bind(window);
+window.fetch = (url, opts) => realFetch(String(url).replace("https://jace-passwords.vercel.app", ""), opts);
+</script>
+<script src="/jace_passwords/web/words.js"></script>
+<script src="/jace_passwords/web/webvault.js"></script>
+<script src="/extension/background.js"></script>
+<script>
+(async () => {
+  const log = [];
+  const step = (name, v) => log.push(`${name}: ${typeof v === "string" ? v : JSON.stringify(v)}`);
+  const tab = { tab: { id: 7 }, origin: "https://login.example.com", frameId: 0 };
+  const popup = {};
+  const b64u = (u8) => btoa(String.fromCharCode(...u8)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  try {
+    step("1 status before sign-in", (await handle({ type: "status" }, tab)).error);
+    step("2 content can't start sign-in", (await handle({ type: "jace-signin" }, tab)).error);
+    step("3 sign in (popup)", await handle({ type: "jace-signin" }, popup));
+    const st = await handle({ type: "status" }, tab);
+    step("4 status after sign-in", { locked: st.locked, keyMode: st.keyMode, account: st.account?.username });
+    step("5 unlock with Jace", await handle({ type: "standalone-unlock" }, popup));
+    const m = await handle({ type: "match", url: "https://www.example.com/login" }, tab);
+    step("6 match", m.logins.map((l) => l.title));
+    const f = await handle({ type: "fill", id: m.logins[0].id }, tab);
+    step("7 fill", { username: f.username, hasPassword: !!f.password });
+    await handle({ type: "submitted", url: "https://news.example.org/login", username: "bob", password: "Pw-12345!" }, tab);
+    step("8 save offer", (await handle({ type: "pending-save" }, tab)).status);
+    step("9 save", (await handle({ type: "save-pending", save: true }, tab)).status);
+    const ch = b64u(crypto.getRandomValues(new Uint8Array(32)));
+    const reg = await handle({ type: "passkey-create", req: { challenge: ch, rp: { id: "example.com", name: "Example" }, user: { id: b64u(new TextEncoder().encode("u-42")), name: "me@example.com", displayName: "Me" }, algs: [-7], exclude: [] } }, tab);
+    step("10 passkey created", { cred: !!reg.credentialId, alg: reg.publicKeyAlgorithm, error: reg.error });
+    const list = await handle({ type: "passkey-list", req: { rpId: "example.com", allow: [] } }, tab);
+    const got = await handle({ type: "passkey-get", req: { challenge: ch, rpId: "example.com" }, credentialId: list[0].credentialId }, tab);
+    // verify the signature like a website would, with the public key from registration
+    const pub = await crypto.subtle.importKey("spki", Uint8Array.from(atob(reg.publicKey.replace(/-/g, "+").replace(/_/g, "/") + "==".slice(0, (4 - reg.publicKey.length % 4) % 4)), (c) => c.charCodeAt(0)), { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+    const d = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+    const der = d(got.signature);
+    const rawSig = ((x) => { const r = x.slice(4, 4 + x[3]); const s = x.slice(6 + x[3]); const p = (b) => { b = b[0] === 0 ? b.slice(1) : b; const o = new Uint8Array(32); o.set(b, 32 - b.length); return o; }; const out = new Uint8Array(64); out.set(p(r)); out.set(p(s), 32); return out; })(der);
+    const signed = new Uint8Array([...d(got.authenticatorData), ...new Uint8Array(await crypto.subtle.digest("SHA-256", d(got.clientDataJSON)))]);
+    step("11 passkey sign-in verifies", await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, pub, rawSig, signed));
+    step("12 cross-site passkey refused", (await handle({ type: "passkey-get", req: { challenge: ch, rpId: "example.com" }, credentialId: list[0].credentialId }, { ...tab, origin: "https://evil.com" })).message);
+    const engine = await engineReady;
+    step("13 sync", (await engine.syncNow()).status);
+    step("14 Python reads what the extension synced", await realFetch("/verify").then((r) => r.json()));
+    step("15 session survives a background restart", !!(await chrome.storage.session.get("jpSession")).jpSession?.key);
+    await handle({ type: "jace-signout" }, popup);
+    step("16 after sign-out", (await handle({ type: "status" }, tab)).error);
+  } catch (e) { step("CRASH", e.stack || String(e)); }
+  document.getElementById("out").textContent = log.join("\n");
+})();
+</script>

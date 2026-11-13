@@ -18,6 +18,7 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 import os
 import secrets
 import time
@@ -37,6 +38,9 @@ REDIRECT = f"{SITE_URL}/api/jace/callback"
 COLLECTION = "pw-vault"
 UA = "JacePasswordsWeb/1.0"
 TOKEN_COOKIE, STATE_COOKIE = "jp_jace", "jp_oauth"
+# The browser extension signs in with the browser's own sign-in window (identity.launchWebAuthFlow),
+# whose final address is one of these; it gets its token in the URL fragment (never sent anywhere).
+EXT_REDIRECT = re.compile(r"^https://[a-z0-9-]+\.(chromiumapp\.org|extensions\.allizom\.org)/[A-Za-z0-9/_-]*$")
 
 
 def _jace(method, path, token=None, form=None, body=None, headers=None):
@@ -121,13 +125,20 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
         return (f"{name}={urllib.parse.quote(value)}; Path={path}; Max-Age={int(max_age)}; HttpOnly; Secure; "
                 f"SameSite=Lax")
 
+    def _bearer(self):
+        auth = self.headers.get("Authorization", "")
+        return auth[7:].strip() if auth.startswith("Bearer ") else None
+
     def _token(self):
-        return _unsign(self._cookies().get(TOKEN_COOKIE, ""))
+        """The web app's cookie, or the extension's own token (Authorization: Bearer)."""
+        return self._bearer() or _unsign(self._cookies().get(TOKEN_COOKIE, ""))
 
     def _same_site(self):
         """State-changing calls must come from our own page (custom header + Origin check)."""
         if self.headers.get("X-Jace-Passwords") != "1":
             return False
+        if self._bearer():  # the extension: no cookie involved, so no cross-site forgery to stop
+            return True
         origin = self.headers.get("Origin")
         return not origin or not SITE_URL or origin == SITE_URL
 
@@ -146,17 +157,24 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
             state, verifier = secrets.token_urlsafe(24), secrets.token_urlsafe(48)
             challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
             silent = q.get("prompt") == "none"  # Jace's silent sign-in: no page if you're already signed in
+            ext = q.get("ext_redirect", "")
+            if ext and not EXT_REDIRECT.match(ext):
+                return self._send(400, {"error": "invalid_request", "error_description": "Unknown extension address."})
             params = {"response_type": "code", "client_id": CLIENT_ID, "redirect_uri": REDIRECT, "scope": "profile sync",
                       "state": state, "code_challenge": challenge, "code_challenge_method": "S256"}
             if silent:
                 params["prompt"] = "none"
             url = f"{JACE_URL}/oauth/authorize?" + urllib.parse.urlencode(params)
-            return self._redirect(url, [self._cookie(STATE_COOKIE, _sign(f"{state}:{verifier}:{int(silent)}"), 600)])
+            ext_b64 = base64.urlsafe_b64encode(ext.encode()).decode().rstrip("=")
+            return self._redirect(url, [self._cookie(STATE_COOKIE, _sign(f"{state}:{verifier}:{int(silent)}:{ext_b64}"), 600)])
         if route == "callback":
             if not self._configured():
                 return
             saved = _unsign(self._cookies().get(STATE_COOKIE, "")) or ""
-            state, verifier, silent = (saved.split(":") + ["", "", "0"])[:3]
+            state, verifier, silent, ext_b64 = (saved.split(":") + ["", "", "0", ""])[:4]
+            ext = base64.urlsafe_b64decode(ext_b64 + "=" * (-len(ext_b64) % 4)).decode() if ext_b64 else ""
+            if ext and not EXT_REDIRECT.match(ext):
+                ext = ""
             clear_state = self._cookie(STATE_COOKIE, "", 0)
             if not state or not hmac.compare_digest(state, q.get("state", "")):
                 return self._redirect("/?signin_error=" + urllib.parse.quote("That sign-in didn't match. Please try again."), [clear_state])
@@ -171,6 +189,9 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
                 msg = tok.get("error_description") or tok.get("error") or "Jace didn't send a sign-in token."
                 return self._redirect("/?signin_error=" + urllib.parse.quote(msg), [clear_state])
             max_age = min(int(tok.get("expires_in") or 30 * 86400), 365 * 86400)
+            if ext:  # back to the extension's sign-in window: the token travels in the fragment only
+                frag = urllib.parse.urlencode({"token": tok["access_token"], "expires_in": max_age})
+                return self._redirect(f"{ext}#{frag}", [clear_state])
             return self._redirect("/", [clear_state, self._cookie(TOKEN_COOKIE, _sign(tok["access_token"]), max_age)])
         if route == "me":
             token = self._token()
@@ -200,8 +221,7 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
             return self._send(503, {"error": "not_configured", "error_description": "Unlocking with Jace isn't set up yet."})
         if self.headers.get("X-Jace-Passwords") != "1":
             return self._send(403, {"error": "forbidden"})
-        auth = self.headers.get("Authorization", "")
-        token = auth[7:].strip() if auth.startswith("Bearer ") else self._token()
+        token = self._token()
         if not token:
             return self._send(401, {"error": "signed_out", "error_description": "Sign in with Jace first."})
         status, _ = _jace("GET", "/api/oauth/sync", token=token)

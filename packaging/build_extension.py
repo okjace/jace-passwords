@@ -15,6 +15,9 @@ ROOT = Path(__file__).resolve().parent.parent
 EXT = ROOT / "extension"
 DIST = ROOT / "dist"
 SKIP = {".DS_Store"}
+# The standalone extension runs the same vault engine as the web app.
+SHARED = {"vault/webvault.js": ROOT / "jace_passwords" / "web" / "webvault.js",
+          "vault/words.js": ROOT / "jace_passwords" / "web" / "words.js"}
 
 
 def files():
@@ -24,17 +27,22 @@ def files():
 def build(target: str) -> Path:
     manifest = json.loads((EXT / "manifest.json").read_text())
     if target == "chrome":
-        manifest["background"] = {"service_worker": "background.js"}
+        manifest["background"] = {"service_worker": "background.js"}  # imports vault/*.js itself
         manifest.pop("browser_specific_settings", None)
     else:
-        manifest["background"] = {"scripts": ["background.js"]}
+        manifest["background"] = {"scripts": ["vault/words.js", "vault/webvault.js", "background.js"]}
     version = manifest["version"]
     DIST.mkdir(exist_ok=True)
     out = DIST / f"jace-passwords-{version}-{target}.{'zip' if target == 'chrome' else 'xpi'}"
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("manifest.json", json.dumps(manifest, indent=2))
         for f in files():
-            z.write(f, f.relative_to(EXT).as_posix())
+            rel = f.relative_to(EXT).as_posix()
+            if rel in SHARED:
+                continue
+            z.write(f, rel)
+        for rel, src in SHARED.items():  # the vault engine: always the web app's current copy
+            z.write(src, rel)
     return out
 
 

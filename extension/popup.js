@@ -15,48 +15,85 @@ async function copy(text, btn) {
 
 async function start() {
   [tab] = await B.tabs.query({ active: true, currentWindow: true });
+  const mode = await send({ type: "mode" });
   const st = await send({ type: "status" });
   const main = $("#main");
   $("#lock").classList.add("hidden");
   if (st.error === "offline") {
-    main.innerHTML = `<div class="center" style="padding:20px 6px"><div style="font-size:34px">🔐</div><p><b>Jace Passwords isn't running</b></p><p class="muted">Open the Jace Passwords app on this computer, then try again.</p></div>`;
+    main.innerHTML = `<div class="center" style="padding:20px 6px"><div style="font-size:34px">🔐</div><p><b>The Jace Passwords app isn't running</b></p>
+      <p class="muted">Open the app on this computer, or use the extension on its own.</p><button class="btn" id="go-solo">Use without the app</button></div>`;
+    $("#go-solo").addEventListener("click", async () => { await send({ type: "unpair" }); start(); });
     return;
   }
-  if (st.error === "unpaired") {
-    main.innerHTML = `<form id="pair"><p><b>Connect this browser</b></p><p class="muted">In the Jace Passwords app, go to Settings → Browser extension → Get pairing code.</p>
-      <input id="code" inputmode="numeric" maxlength="6" placeholder="6-digit code" autofocus style="text-align:center;font-size:20px;letter-spacing:.3em"><div class="err" id="err"></div><button class="btn">Connect</button></form>`;
-    $("#pair").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const ua = navigator.userAgent;
-      const name = /Firefox/.test(ua) ? "Firefox" : /Edg\//.test(ua) ? "Edge" : /Brave/.test(ua) ? "Brave" : /OPR/.test(ua) ? "Opera" : "Chrome";
-      const r = await send({ type: "pair", code: $("#code").value.trim(), name });
-      if (r.error) $("#err").textContent = r.message; else start();
+  if (st.error === "unpaired") return renderPair(main);
+  if (st.error === "signedout") {
+    main.innerHTML = `<div class="center" style="padding:14px 6px"><div style="font-size:34px">🔐</div><p><b>Sign in to Jace Passwords</b></p>
+      <p class="muted">Your vault comes from your Jace account, end-to-end encrypted.</p>
+      <button class="btn" id="signin">Sign in with Jace</button><div class="err" id="err"></div>
+      <p class="muted" style="margin-top:14px">Have the desktop app? <a id="to-pair" href="#">Connect to it instead</a></p></div>`;
+    $("#signin").addEventListener("click", async (e) => {
+      e.target.disabled = true; e.target.textContent = "Signing in…";
+      const r = await send({ type: "jace-signin" });
+      if (r.error) { $("#err").textContent = r.message; e.target.disabled = false; e.target.textContent = "Sign in with Jace"; } else start();
     });
+    $("#to-pair").addEventListener("click", (e) => { e.preventDefault(); renderPair(main); });
+    return;
+  }
+  if (st.error === "novault") {
+    main.innerHTML = `<div class="center" style="padding:14px 6px"><div style="font-size:34px">✨</div><p><b>Create your vault</b></p>
+      <p class="muted">There's no vault on your Jace account yet. Create one in Jace Passwords on the web, then come back here.</p>
+      <button class="btn" id="open-web">Open Jace Passwords</button>
+      <p class="muted" style="margin-top:12px"><a id="signout" href="#">Sign out</a></p></div>`;
+    $("#open-web").addEventListener("click", () => send({ type: "open-web" }));
+    $("#signout").addEventListener("click", async (e) => { e.preventDefault(); await send({ type: "jace-signout" }); start(); });
     return;
   }
   $("#who").textContent = st.account ? "@" + st.account.username : "";
   if (st.locked) {
+    const info = mode.mode === "standalone" ? await send({ type: "standalone-info" }) : { keyMode: st.keyMode };
+    const withJace = info.keyMode === "jace";
     main.innerHTML = `<form id="unlock" class="center" style="padding:10px 4px"><div style="font-size:34px">🔒</div><p><b>Unlock Jace Passwords</b></p>
-      <input type="password" id="pw" placeholder="Master password" autofocus><div class="err" id="err"></div><button class="btn">Unlock</button></form>`;
+      ${withJace ? `<p class="muted">This vault unlocks with your Jace account.</p>` : `<input type="password" id="pw" placeholder="Master password" autofocus>`}
+      ${info.needsSecretKey ? `<input id="sk" placeholder="Secret Key (J1-…)" autocomplete="off" spellcheck="false" style="margin-top:6px">` : ""}
+      <div class="err" id="err"></div><button class="btn">${withJace ? "Unlock with Jace" : "Unlock"}</button></form>`;
     $("#unlock").addEventListener("submit", async (e) => {
       e.preventDefault();
       e.submitter.textContent = "Unlocking…";
-      const r = await send({ type: "unlock", password: $("#pw").value });
-      if (r.error) { $("#err").textContent = r.message; e.submitter.textContent = "Unlock"; } else start();
+      const r = mode.mode === "standalone"
+        ? await send({ type: "standalone-unlock", password: $("#pw")?.value || "", secretKey: $("#sk")?.value || "" })
+        : await send({ type: "unlock", password: $("#pw")?.value || "" });
+      if (r.error) { $("#err").textContent = r.message; e.submitter.textContent = withJace ? "Unlock with Jace" : "Unlock"; } else start();
     });
     return;
   }
   $("#lock").classList.remove("hidden");
-  renderMain();
+  renderMain(mode.mode);
 }
 
-async function renderMain() {
+function renderPair(main) {
+  main.innerHTML = `<form id="pair"><p><b>Connect to the desktop app</b></p><p class="muted">In the Jace Passwords app, go to Settings → Browser extension → Get pairing code.</p>
+    <input id="code" inputmode="numeric" maxlength="6" placeholder="6-digit code" autofocus style="text-align:center;font-size:20px;letter-spacing:.3em"><div class="err" id="err"></div><button class="btn">Connect</button>
+    <p class="muted" style="margin-top:12px;text-align:center"><a id="solo" href="#">Use the extension on its own instead</a></p></form>`;
+  $("#pair").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const ua = navigator.userAgent;
+    const name = /Firefox/.test(ua) ? "Firefox" : /Edg\//.test(ua) ? "Edge" : /Brave/.test(ua) ? "Brave" : /OPR/.test(ua) ? "Opera" : "Chrome";
+    const r = await send({ type: "pair", code: $("#code").value.trim(), name });
+    if (r.error) $("#err").textContent = r.message; else start();
+  });
+  $("#solo").addEventListener("click", async (e) => { e.preventDefault(); await send({ type: "unpair" }); start(); });
+}
+
+let currentMode = "desktop";
+async function renderMain(mode = currentMode) {
+  currentMode = mode;
   const main = $("#main");
+  const solo = mode === "standalone";
   main.innerHTML = `<div class="tabs">${[["site", "This site"], ["search", "Search"], ["gen", "Generator"]].map(([k, l]) => `<button data-tab="${k}" class="${tabName === k ? "on" : ""}">${l}</button>`).join("")}</div><div id="body"></div>
-    <footer><a id="open">Open Jace Passwords ↗</a><a id="unpair" class="muted">Disconnect</a></footer>`;
+    <footer><a id="open">Open Jace Passwords ↗</a><a id="unpair" class="muted">${solo ? "Sign out" : "Disconnect"}</a></footer>`;
   main.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => { tabName = b.dataset.tab; renderMain(); }));
-  $("#open").addEventListener("click", () => send({ type: "open-app" }));
-  $("#unpair").addEventListener("click", async () => { await send({ type: "unpair" }); start(); });
+  $("#open").addEventListener("click", () => send({ type: solo ? "open-web" : "open-app" }));
+  $("#unpair").addEventListener("click", async () => { await send({ type: solo ? "jace-signout" : "unpair" }); start(); });
   const body = $("#body");
   if (tabName === "gen") return renderGen(body);
   if (tabName === "search") {

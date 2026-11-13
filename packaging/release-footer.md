@@ -9,4 +9,4 @@
 | **Jace Browser / Firefox extension** | `jace-passwords-…-signed.xpi`: about:addons → gear → **Install Add-on From File…** |
 | **Chrome / Edge / Brave extension** | `jace-passwords-…-chrome.zip`: unzip, then chrome://extensions → Developer mode → **Load unpacked** |
 
-After installing the extension, pair it in Jace Passwords → Settings → Browser extension.
+After installing the extension, click its toolbar button and **Sign in with Jace**. It works on its own, or you can pair it with the desktop app (Settings → Browser extension).

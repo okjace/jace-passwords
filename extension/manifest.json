@@ -1,30 +1,79 @@
 {
   "manifest_version": 3,
   "name": "Jace Passwords",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Autofill logins, passkeys, 2FA codes, credit & debit cards and identities from your Jace Passwords vault.",
-  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
-  "action": { "default_popup": "popup.html", "default_title": "Jace Passwords", "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png" } },
-  "background": { "service_worker": "background.js", "scripts": ["background.js"] },
-  "permissions": ["storage", "activeTab", "contextMenus", "scripting"],
-  "host_permissions": ["http://127.0.0.1:47620/*"],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Jace Passwords",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "scripts": [
+      "vault/words.js",
+      "vault/webvault.js",
+      "background.js"
+    ]
+  },
+  "permissions": [
+    "storage",
+    "activeTab",
+    "contextMenus",
+    "scripting",
+    "identity"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:47620/*",
+    "https://jace-passwords.vercel.app/*"
+  ],
   "content_scripts": [
     {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["passkey-page.js"],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "passkey-page.js"
+      ],
       "all_frames": true,
       "run_at": "document_start",
       "world": "MAIN"
     },
     {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["content.js"],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content.js"
+      ],
       "all_frames": true,
       "run_at": "document_start"
     }
   ],
   "commands": {
-    "fill-login": { "suggested_key": { "default": "Ctrl+Shift+L", "mac": "Command+Shift+L" }, "description": "Fill the best login for this page" }
+    "fill-login": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+L",
+        "mac": "Command+Shift+L"
+      },
+      "description": "Fill the best login for this page"
+    }
   },
-  "browser_specific_settings": { "gecko": { "id": "jace-passwords@okjace", "strict_min_version": "128.0" } }
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "jace-passwords@okjace",
+      "strict_min_version": "128.0"
+    }
+  }
 }
