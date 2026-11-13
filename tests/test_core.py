@@ -67,6 +67,23 @@ class Core(unittest.TestCase):
         pk2 = {**pk, "credentialId": "c2", "userHandle": "h2", "userName": "second"}
         self.assertNotEqual(self.v.save_passkey(pk2, "GitHub")["id"], login["id"])  # another account: its own login
 
+    def test_remember_on_this_device(self):
+        self.v.create("correct horse battery", None)
+        self.v.create_item({"type": "note", "title": "Kept", "fields": {}})
+        with self.assertRaises(VaultError):
+            self.v.remember(True, "wrong")
+        self.v.remember(True, "correct horse battery")
+        self.v.lock()
+        v2 = Vault(self.d)
+        self.assertTrue(v2.remembered())
+        v2.unlock(None)  # no master password needed here
+        self.assertEqual(v2.visible_items()[0]["title"], "Kept")
+        self.assertNotIn("Kept", (self.d / "device.json").read_text())  # only a sealed key
+        v2.remember(False); v2.lock()
+        with self.assertRaises(VaultError):
+            Vault(self.d).unlock(None)
+        Vault(self.d).unlock("correct horse battery")
+
     def test_trash_purge(self):
         self.v.create("correct horse battery", None)
         it = self.v.create_item({"type": "card", "title": "Visa", "fields": {"number": "4111111111111111"}})

@@ -138,7 +138,7 @@ class App:
         if not v.exists() or v.unlocked:
             return
         mode = v.key_mode()
-        if mode == "device" or (mode == "jace" and self.jace_account()):
+        if mode == "device" or (mode == "jace" and self.jace_account()) or (mode == "password" and v.remembered()):
             try:
                 self.unlock_vault()
             except Exception:  # noqa: BLE001 - offline etc.: the lock screen has a button
@@ -199,7 +199,7 @@ class App:
             v = self.vault
             if v.unlocked:
                 minutes = v.settings().get("autoLockMinutes", 10)
-                if minutes and v.key_mode() != "device" and time.time() - v.last_activity > float(minutes) * 60:
+                if minutes and v.key_mode() != "device" and not v.remembered() and time.time() - v.last_activity > float(minutes) * 60:
                     v.lock()
 
     # ---------- state ----------
@@ -214,6 +214,7 @@ class App:
             "hasSecretKey": bool(v.device().get("secretKey")),
             "usesSecretKey": v.uses_secret_key() if v.exists() else None,
             "keyMode": v.key_mode() if v.exists() else None,
+            "remembered": v.remembered() if v.exists() else False,
             "needsSecretKey": bool(v.exists() and v.uses_secret_key() and not v.device().get("secretKey")),
             "jace": self.public_account(),
             "vaultAccount": acct,
@@ -703,6 +704,10 @@ def make_handler(app: App):
             app.after_change()
             return {"ok": True}
 
+        if head == "remember" and method == "POST":  # open on this device without the master password
+            v.remember(bool(body.get("on")), body.get("password", ""))
+            return {"ok": True, "remembered": v.remembered()}
+
         if head == "secret-key" and method == "POST":
             use = bool(body.get("use"))
             if not use and not app.jace_account():
@@ -755,7 +760,8 @@ def make_handler(app: App):
 
         if route == "status":
             return {"locked": not v.unlocked, "setup": v.exists(), "account": app.public_account(),
-                    "version": APP_VERSION}
+                    "version": APP_VERSION, "keyMode": v.key_mode() if v.exists() else None,
+                    "remembered": v.remembered() if v.exists() else False}
         if route == "unlock" and method == "POST":
             app.unlock_vault(body.get("password"))
             return {"ok": True}

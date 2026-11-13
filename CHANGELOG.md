@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.4
+
+- **Remember my master password on this device:** Settings → Security. Your vault keeps its master password and stays encrypted, but this device opens it by itself and doesn't auto-lock. Other devices, and restoring from Jace, still need the password. Turn it off any time.
+- The extension popup shows an **Open** button instead of a password box when the vault doesn't need one here.
+
 ## 1.3.3
 
 - **Adding or changing a master password works in Firefox and Jace Browser.** They refused a step of the password key calculation with "The operation failed for an operation-specific reason". It's now done in a way every browser accepts, with exactly the same result, so existing vaults open as before.

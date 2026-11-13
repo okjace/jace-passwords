@@ -50,19 +50,20 @@ async function start() {
   }
   $("#who").textContent = st.account ? "@" + st.account.username : "";
   if (st.locked) {
-    const info = mode.mode === "standalone" ? await send({ type: "standalone-info" }) : { keyMode: st.keyMode };
+    const info = mode.mode === "standalone" ? await send({ type: "standalone-info" }) : { keyMode: st.keyMode, remembered: st.remembered };
     const withJace = info.keyMode === "jace";
+    const open = info.keyMode === "device" || info.remembered; // no password to type here
     main.innerHTML = `<form id="unlock" class="center" style="padding:10px 4px"><div style="font-size:34px">🔒</div><p><b>Unlock Jace Passwords</b></p>
-      ${withJace ? `<p class="muted">This vault unlocks with your Jace account.</p>` : `<input type="password" id="pw" placeholder="Master password" autofocus>`}
+      ${withJace ? `<p class="muted">This vault unlocks with your Jace account.</p>` : open ? `<p class="muted">${info.remembered ? "Your master password is remembered here." : "This vault opens without a password."}</p>` : `<input type="password" id="pw" placeholder="Master password" autofocus>`}
       ${info.needsSecretKey ? `<input id="sk" placeholder="Secret Key (J1-…)" autocomplete="off" spellcheck="false" style="margin-top:6px">` : ""}
-      <div class="err" id="err"></div><button class="btn">${withJace ? "Unlock with Jace" : "Unlock"}</button></form>`;
+      <div class="err" id="err"></div><button class="btn" ${open ? "autofocus" : ""}>${withJace ? "Unlock with Jace" : open ? "Open" : "Unlock"}</button></form>`;
     $("#unlock").addEventListener("submit", async (e) => {
       e.preventDefault();
       e.submitter.textContent = "Unlocking…";
       const r = mode.mode === "standalone"
         ? await send({ type: "standalone-unlock", password: $("#pw")?.value || "", secretKey: $("#sk")?.value || "" })
         : await send({ type: "unlock", password: $("#pw")?.value || "" });
-      if (r.error) { $("#err").textContent = r.message; e.submitter.textContent = withJace ? "Unlock with Jace" : "Unlock"; } else start();
+      if (r.error) { $("#err").textContent = r.message; e.submitter.textContent = withJace ? "Unlock with Jace" : open ? "Open" : "Unlock"; if (open) start(); } else start();
     });
     return;
   }

@@ -14,7 +14,7 @@
   const subtle = crypto.subtle;
   const VERSION = "1.3.1";
   const FORMAT = "jace-passwords/1";
-  const AAD_KEY = enc.encode("jace-passwords:key"), AAD_DATA = enc.encode("jace-passwords:data");
+  const AAD_KEY = enc.encode("jace-passwords:key"), AAD_DATA = enc.encode("jace-passwords:data"), AAD_REMEMBER = enc.encode("jace-passwords:remembered");
   const KDF = { name: "scrypt", n: 131072, r: 8, p: 1 };
   const B32 = "ABCDEFGHJKLMNPQRSTVWXYZ23456789";
   const DEFAULT_SETTINGS = { autoLockMinutes: 10, clipboardClearSeconds: 30, travelMode: false, theme: "system", aliasBase: "", lockOnSleep: true };
@@ -201,6 +201,8 @@
   async function unlock(password, secretKey, file) {
     const f = file || store.get("vault");
     if (!f || f.format !== FORMAT) throw new ApiError("This isn't a Jace Passwords vault.");
+    if (!password && !file && keyMode(f) === "password" && device().rememberedKey) return unlockRemembered(f);
+    if (!password && keyMode(f) === "password") throw new ApiError("Enter your master password.");
     const usesSk = usesSecretKey(f);
     const sk = usesSk ? secretKey || device().secretKey : null;
     if (usesSk && !sk) throw new ApiError("Enter your Secret Key (it's on your Emergency Kit).");
@@ -220,6 +222,27 @@
     touch();
   }
   function lock() { V.key = null; V.data = null; }
+
+  // Remember on this device (vault.remember): a master password, but this device opens the vault by
+  // itself with the key sealed under its own device key. Other devices and restores still need it.
+  const remembered = () => !!device().rememberedKey && exists() && keyMode(store.get("vault")) === "password";
+  async function remember(on, password) {
+    require_();
+    if (!on) { updateDevice({ rememberedKey: null }); return; }
+    if (!(await verifyPassword(password || ""))) throw new ApiError("That master password is wrong.");
+    updateDevice({ rememberedKey: await seal(deviceKey(true), V.key, AAD_REMEMBER) });
+  }
+  async function unlockRemembered(f) {
+    let key, data;
+    try {
+      key = new Uint8Array(await subtle.decrypt({ name: "AES-GCM", iv: b64d(device().rememberedKey.iv), additionalData: AAD_REMEMBER },
+        await aes(deviceKey()), b64d(device().rememberedKey.ct)));
+      data = JSON.parse(dec.decode(await openSealed(key, f.data, AAD_DATA)));
+    } catch { updateDevice({ rememberedKey: null }); throw new ApiError("Enter your master password."); }
+    V.key = key; V.data = data;
+    V.meta = Object.fromEntries(Object.entries(f).filter(([k]) => k !== "data" && k !== "updatedAt"));
+    touch();
+  }
 
   async function verifyPassword(pw) {
     if (keyMode(store.get("vault")) !== "password") return !!V.data; // no master password to check
@@ -610,12 +633,12 @@
     if (autoOpened || V.data || !exists()) return;
     autoOpened = true;
     const mode = keyMode(store.get("vault"));
-    if (mode === "device" || (mode === "jace" && (await me()))) { try { await unlock(null, null); scheduleSync(100); } catch { /* lock screen has a button */ } }
+    if (mode === "device" || (mode === "jace" && (await me())) || remembered()) { try { await unlock(null, null); scheduleSync(100); } catch { /* lock screen has a button */ } }
   }
   async function state() {
     await autoOpen();
     const st = { app: "Jace Passwords", version: VERSION, web: !!env.web, extension: !!env.extension, setup: exists(), locked: !V.data, hasSecretKey: !!device().secretKey, keyMode: exists() ? keyMode(store.get("vault")) : null,
-      usesSecretKey: exists() ? usesSecretKey(store.get("vault")) : null,
+      remembered: remembered(), usesSecretKey: exists() ? usesSecretKey(store.get("vault")) : null,
       needsSecretKey: exists() && usesSecretKey(store.get("vault")) && !device().secretKey,
       jace: await me(), vaultAccount: store.get("vault")?.account || null, sync, signinError: signinError, settings: V.data ? settings() : null };
     return st;
@@ -670,6 +693,7 @@
         await save(); scheduleSync(100);
         return { secretKey: sk };
       }
+      case "remember": await remember(!!body.on, body.password); return { ok: true, remembered: remembered() };
       case "unlock": await unlock(body.password || "", body.secretKey || null); scheduleSync(100); return { ok: true };
       case "sync": return syncNow();
       case "totp":
@@ -810,8 +834,8 @@
         return { filename: "jace-passwords-backup.json", content: JSON.stringify(await fileDict(), null, 1), mime: "application/json" };
       case "key-mode": {
         if (!(await verifyPassword(body.current || ""))) throw new ApiError("That master password is wrong.");
-        if (body.mode === "jace") { await wrap(null, null, undefined, false, await jaceKey()); updateDevice({ secretKey: null }); }
-        else if (body.mode === "device") { await wrap(null, null, undefined, false, null); updateDevice({ secretKey: null }); }
+        if (body.mode === "jace") { await wrap(null, null, undefined, false, await jaceKey()); updateDevice({ secretKey: null, rememberedKey: null }); }
+        else if (body.mode === "device") { await wrap(null, null, undefined, false, null); updateDevice({ secretKey: null, rememberedKey: null }); }
         else {
           if (!body.password) throw new ApiError("Enter a master password.");
           await wrap(body.password, null, undefined, false);
@@ -964,7 +988,7 @@
   async function extApi(route, body = {}) {
     checkAutoLock();
     if (route === "status") await autoOpen();
-    if (route === "status") return { locked: !V.data, setup: exists(), account: await me(), version: VERSION, keyMode: exists() ? keyMode(store.get("vault")) : null };
+    if (route === "status") return { locked: !V.data, setup: exists(), account: await me(), version: VERSION, keyMode: exists() ? keyMode(store.get("vault")) : null, remembered: remembered() };
     if (route === "unlock") { await unlock(body.password || "", null); scheduleSync(100); return { ok: true }; }
     if (route === "lock") { lock(); return { ok: true }; }
     if (route === "generate") { const pw = generate(body || {}); return { password: pw, strength: strength(pw) }; }
@@ -1050,7 +1074,7 @@
   function checkAutoLock() {
     if (!V.data) return;
     const m = +settings().autoLockMinutes;
-    if (m && keyMode(V.meta) !== "device" && Date.now() - V.lastActivity > m * 60000) lock();
+    if (m && keyMode(V.meta) !== "device" && !remembered() && Date.now() - V.lastActivity > m * 60000) lock();
   }
   setInterval(checkAutoLock, 10000);
 

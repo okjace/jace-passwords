@@ -281,17 +281,17 @@ function renderLocked(app) {
       <h1 style="margin-top:12px">${who ? `Welcome back, ${h(who.name || who.username)}` : "Unlock Jace Passwords"}</h1>
       ${who ? `<p class="muted">@${h(who.username)}</p>` : ""}
     </div>
-    ${st.keyMode === "device" ? `<p class="muted" style="text-align:center">This vault opens without a password on this computer.</p>` : st.keyMode === "jace" ? `<p class="muted" style="text-align:center">This vault unlocks with your Jace account.</p>` : `<label class="lbl">Master password</label>
+    ${st.remembered ? `<p class="muted" style="text-align:center">Your master password is remembered here.</p>` : st.keyMode === "device" ? `<p class="muted" style="text-align:center">This vault opens without a password on this computer.</p>` : st.keyMode === "jace" ? `<p class="muted" style="text-align:center">This vault unlocks with your Jace account.</p>` : `<label class="lbl">Master password</label>
     <input class="input" type="password" id="pw" autocomplete="current-password" autofocus>`}
     ${!st.needsSecretKey ? "" : `<label class="lbl">Secret Key</label><input class="input mono" id="sk" placeholder="J1-…" autocomplete="off" spellcheck="false">`}
     <div class="error" id="err"></div>
-    <button class="btn primary block" style="margin-top:10px" ${st.keyMode !== "password" ? "autofocus" : ""}>${st.keyMode === "jace" ? "Unlock with Jace" : st.keyMode === "device" ? "Open" : "Unlock"}</button>
+    <button class="btn primary block" style="margin-top:10px" ${st.keyMode !== "password" || st.remembered ? "autofocus" : ""}>${st.keyMode === "jace" ? "Unlock with Jace" : st.keyMode === "device" || st.remembered ? "Open" : "Unlock"}</button>
   </form></div>`;
   $("#f-unlock").addEventListener("submit", async (e) => {
     e.preventDefault();
     e.submitter.disabled = true; e.submitter.textContent = "Unlocking…";
     try { await POST("unlock", { password: $("#pw")?.value || "", secretKey: $("#sk")?.value }); await refreshState(); }
-    catch (x) { $("#err").textContent = x.message; e.submitter.disabled = false; e.submitter.textContent = st.keyMode === "jace" ? "Unlock with Jace" : st.keyMode === "device" ? "Open" : "Unlock"; $("#pw")?.select(); }
+    catch (x) { if (st.remembered) { await refreshState(); return; } $("#err").textContent = x.message; e.submitter.disabled = false; e.submitter.textContent = st.keyMode === "jace" ? "Unlock with Jace" : st.keyMode === "device" ? "Open" : "Unlock"; $("#pw")?.select(); }
   });
 }
 
@@ -807,6 +807,9 @@ async function renderSettings(el) {
       ? "No master password: this vault unlocks with your Jace account. ⚠ It's encrypted, but not end-to-end: the Jace Passwords server holds the key for your account."
       : "No master password: this vault opens on this computer without asking. ⚠ It's encrypted on disk, but anyone who can use this computer can open it."} Add a master password to protect it.</p>
     <button class="btn primary" data-a="change-pw">Add a master password</button>` : `
+    <label class="lbl">On this ${st.web || st.extension ? "browser" : "computer"}</label>
+    <label class="field" style="padding:8px 0;cursor:pointer"><input type="checkbox" data-a="remember" ${st.remembered ? "checked" : ""} style="width:18px;height:18px">
+      <div class="body"><b>Remember my master password</b><div class="small muted">Opens by itself here and doesn't auto-lock. Your vault stays encrypted, and your master password is still needed on other devices and to restore it. ⚠ Anyone who can use this ${st.web || st.extension ? "browser" : "computer"} can open it.</div></div></label>
     <div class="row" style="margin-top:14px;flex-wrap:wrap"><button class="btn" data-a="change-pw">Change master password</button>${st.usesSecretKey ? `<button class="btn" data-a="show-kit">View Emergency Kit</button>` : ""}${st.jace ? `<button class="btn" data-a="use-jace-unlock">Unlock with Jace instead</button>` : `<button class="btn" data-a="use-device-unlock">Open without a password</button>`}</div>
     <label class="lbl">Secret Key</label>
     ${st.usesSecretKey
@@ -997,6 +1000,15 @@ const ACTIONS = {
   },
   "new-vault"() { editVault(null); },
   "edit-vault"(el) { editVault(S.data.vaults.find((v) => v.id === el.dataset.id)); },
+  async remember(el) {
+    const on = el.checked;
+    el.checked = !on; // until it's done
+    if (!on) { await POST("remember", { on: false }); await refreshState(); toast("This device asks for your master password again"); return; }
+    passwordPrompt("Remember my master password", "Enter your master password once. After that, this device opens your vault by itself.", async (pw) => {
+      await POST("remember", { on: true, password: pw });
+      closeModal(); await refreshState(); toast("Remembered: your vault opens by itself here");
+    });
+  },
   async "del-vault"(el) { if (!(await ask("Delete this vault? Its items move to Trash.", "Delete", true))) return; try { await api("DELETE", "vaults/" + el.dataset.id); closeModal(); S.view = "all"; await reload(); } catch (x) { toast(x.message); } },
   "wt-filter"(el) { S.filterIds = { ids: S.watch[el.dataset.k], label: el.dataset.l }; S.view = "all"; S.selected = null; render(); },
   "bt-filter"() { S.filterIds = { ids: Object.keys(S.breach.breached), label: "Breached" }; S.view = "all"; render(); },

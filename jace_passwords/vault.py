@@ -21,6 +21,7 @@ from . import crypto, data_dir, write_private
 FORMAT = "jace-passwords/1"
 AAD_KEY = b"jace-passwords:key"
 AAD_DATA = b"jace-passwords:data"
+AAD_REMEMBER = b"jace-passwords:remembered"
 
 ITEM_TYPES = ("login", "card", "note", "identity", "alias")
 
@@ -207,10 +208,10 @@ class Vault:
                 if not jace_key:
                     raise VaultError("Sign in with Jace first.")
                 self._wrap(None, None, jace_key=jace_key)
-                self.update_device(secretKey=None)
+                self.update_device(secretKey=None, rememberedKey=None)
             elif mode == "device":
                 self._wrap(None, None)
-                self.update_device(secretKey=None)
+                self.update_device(secretKey=None, rememberedKey=None)
             else:
                 raise VaultError("Unknown unlock method.")
             self.save()
@@ -234,6 +235,10 @@ class Vault:
             f = file or self.read_file()
             if f.get("format") != FORMAT:
                 raise VaultError("This isn't a Jace Passwords vault.")
+            if not password and file is None and self.file_key_mode(f) == "password" and self.device().get("rememberedKey"):
+                return self._unlock_remembered(f)
+            if not password and self.file_key_mode(f) == "password":
+                raise VaultError("Enter your master password.")
             uses_sk = self.file_uses_secret_key(f)
             sk = (secret_key or self.device().get("secretKey")) if uses_sk else None
             if uses_sk and not sk:
@@ -248,6 +253,33 @@ class Vault:
             if file is not None:
                 self.save()
             self.touch()
+
+    # ---------- remember on this device: a master password, but this device opens it by itself ----------
+    def remembered(self) -> bool:
+        return bool(self.device().get("rememberedKey")) and self.exists() and self.key_mode() == "password"
+
+    def remember(self, on: bool, password: str = "") -> None:
+        """On: this device keeps the vault key, sealed with its own device key, so it opens without
+        the master password. The password is still needed on other devices and to restore."""
+        with self.lock_:
+            self.require()
+            if not on:
+                self.update_device(rememberedKey=None)
+                return
+            if not self.verify_password(password):
+                raise VaultError("That master password is wrong.")
+            self.update_device(rememberedKey=crypto.seal(self.device_key(create=True), self._key, AAD_REMEMBER))
+
+    def _unlock_remembered(self, f: dict) -> None:
+        try:
+            key = crypto.open_sealed(self.device_key(), self.device()["rememberedKey"], AAD_REMEMBER)
+            data = crypto.open_json(key, f["data"], AAD_DATA)
+        except Exception as e:  # noqa: BLE001 - a different vault now (restored): forget it
+            self.update_device(rememberedKey=None)
+            raise VaultError("Enter your master password.") from e
+        self._key, self._data = key, data
+        self._file_meta = {k: v for k, v in f.items() if k not in ("data", "updatedAt")}
+        self.touch()
 
     def lock(self) -> None:
         with self.lock_:
