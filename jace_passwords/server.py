@@ -242,6 +242,39 @@ def item_summary(i: dict) -> dict:
     return s
 
 
+def _norm(s) -> str:
+    return " ".join("".join(c.lower() if c.isalnum() else " " for c in str(s or "")).split())
+
+
+def _item_title(kind: str, f: dict) -> tuple[str, str]:
+    if kind == "card":
+        num = "".join(c for c in f.get("number", "") if c.isdigit())
+        brand = card_brand(num) or "Card"
+        exp = f"{f.get('expMonth', '')}/{str(f.get('expYear', ''))[-2:]}" if f.get("expMonth") else ""
+        return f"{brand} •••• {num[-4:]}", " · ".join(x for x in (f"{brand} •••• {num[-4:]}", f.get("cardholder", ""), f"expires {exp}" if exp else "") if x)
+    name = f.get("fullName") or " ".join(x for x in (f.get("firstName"), f.get("lastName")) if x)
+    place = ", ".join(x for x in (f.get("address1"), f.get("city"), f.get("state"), f.get("zip")) if x)
+    title = name or f.get("email") or f.get("address1") or "Address"
+    return title, " · ".join(x for x in (name, place, f.get("email", ""), f.get("phone", "")) if x)
+
+
+def _find_same(v, kind: str, f: dict):
+    """The card with the same number, or the identity with the same street address (or email)."""
+    for i in v.visible_items():
+        if i["type"] != kind:
+            continue
+        g = i.get("fields", {})
+        if kind == "card":
+            if f.get("number") and "".join(c for c in g.get("number", "") if c.isdigit()) == "".join(c for c in f["number"] if c.isdigit()):
+                return i
+        elif f.get("address1"):
+            if _norm(g.get("address1")) == _norm(f["address1"]):
+                return i
+        elif f.get("email") and _norm(g.get("email")) == _norm(f["email"]):
+            return i
+    return None
+
+
 def card_brand(num: str) -> str:
     if num.startswith("4"):
         return "Visa"
@@ -799,6 +832,29 @@ def make_handler(app: App):
                     raise passkeys.PasskeyError("That passkey isn't in your vault.")
             except passkeys.PasskeyError as e:
                 raise ApiError(f"{e.name}: {e}", 400)
+        if route in ("save-check-item", "save-item") and method == "POST":  # cards and addresses typed into forms
+            kind = body.get("type")
+            if kind not in ("card", "identity"):
+                raise ApiError("Unknown item type.")
+            fields = {k: str(val).strip() for k, val in (body.get("fields") or {}).items()
+                      if isinstance(val, (str, int)) and str(val).strip() and k != "cvv"}
+            title, summary = _item_title(kind, fields)
+            match = _find_same(v, kind, fields)
+            if route == "save-check-item":
+                if not match:
+                    return {"status": "new", "title": title, "summary": summary}
+                same = all(_norm(match["fields"].get(k)) == _norm(val) for k, val in fields.items())
+                return {"status": "unchanged" if same else "update", "title": match["title"], "summary": summary}
+            if match:
+                v.update_item(match["id"], {"fields": {**match["fields"], **fields}})
+                app.after_change()
+                return {"status": "updated", "id": match["id"]}
+            if kind == "card":
+                fields.setdefault("cardType", "credit")
+                fields["brand"] = card_brand(fields.get("number", ""))
+            it = v.create_item({"type": kind, "title": title, "fields": fields})
+            app.after_change()
+            return {"status": "created", "id": it["id"]}
         if route == "save-check" and method == "POST":
             url, user, pw = body.get("url", ""), body.get("username", ""), body.get("password", "")
             for i in v.visible_items():

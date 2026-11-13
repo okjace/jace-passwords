@@ -42,47 +42,79 @@
     setValue(el, code);
   }
 
+  // autocomplete="shipping address-line1" -> "address-line1" (ignores section-/shipping/billing/home… prefixes)
+  const acKind = (el) => (el.getAttribute("autocomplete") || "").toLowerCase().split(/\s+/)
+    .filter((t) => t && !/^(section-.*|shipping|billing|home|work|mobile|fax|pager|on|off)$/.test(t)).pop() || "";
+  const AC_MAP = { "cc-number": "cc-number", "cc-name": "cc-name", "cc-given-name": "cc-given", "cc-family-name": "cc-family",
+    "cc-exp": "cc-exp", "cc-exp-month": "cc-exp-month", "cc-exp-year": "cc-exp-year", "cc-csc": "cc-csc", "cc-type": "cc-type",
+    "given-name": "id-first", "additional-name": "id-middle", "family-name": "id-last", name: "id-name", email: "id-email",
+    tel: "id-phone", "tel-national": "id-phone", "street-address": "id-address1", "address-line1": "id-address1",
+    "address-line2": "id-address2", "address-line3": "id-address3", "address-level2": "id-city", "address-level1": "id-state",
+    "postal-code": "id-zip", country: "id-country", "country-name": "id-country", organization: "id-company",
+    bday: "id-birthday", "bday-day": "id-bday-day", "bday-month": "id-bday-month", "bday-year": "id-bday-year" };
+  const loginContext = (el) => {
+    const scope = el.form || document;
+    return !!scope.querySelector("input[type=password]") || /login|signin|sign in|identifier/.test(words(el) + " " + location.pathname.toLowerCase());
+  };
+  const optionWords = (sel) => [...sel.options].slice(0, 40).map((o) => o.text.toLowerCase()).join(" ");
+
   function classify(el) {
-    if (!(el instanceof HTMLInputElement) || el.disabled || el.readOnly) return null;
-    const type = (el.type || "text").toLowerCase();
-    if (!["text", "email", "password", "tel", "number", "search", ""].includes(type)) return null;
+    const isSelect = el instanceof HTMLSelectElement, isArea = el instanceof HTMLTextAreaElement;
+    const isInput = el instanceof HTMLInputElement;
+    const type = isInput ? (el.type || "text").toLowerCase() : "";
+    const isRadio = type === "radio";
+    const isText = isInput && ["text", "email", "password", "tel", "number", "search", ""].includes(type);
+    if (!(isSelect || isArea || isRadio || isText) || el.disabled || el.readOnly) return null;
     const ac = (el.getAttribute("autocomplete") || "").toLowerCase();
-    const h = hint(el);
-    if (isOtpField(el, ac)) return "totp";
-    if (ac.startsWith("cc-") || /card.?number|cardnum|cc-?num|ccnumber/.test(h)) {
-      if (ac === "cc-number" || /card.?number|cardnum|cc-?num|ccnumber/.test(h)) return "cc-number";
-      if (ac === "cc-name") return "cc-name";
-      if (ac === "cc-exp") return "cc-exp";
-      if (ac === "cc-exp-month") return "cc-exp-month";
-      if (ac === "cc-exp-year") return "cc-exp-year";
-      if (ac === "cc-csc") return "cc-csc";
-    }
-    if (/\b(cvv|cvc|csc|card.?code|security.?code)\b/.test(h)) return "cc-csc";
-    if (/name.?on.?card|card.?holder|cardholder/.test(h)) return "cc-name";
-    if (/\b(exp(iry|iration)?.?(date)?)\b|mm.?\/.?yy/.test(h) && !/month|year/.test(h)) return "cc-exp";
-    if (/exp.*month|cc-?month/.test(h)) return "cc-exp-month";
-    if (/exp.*year|cc-?year/.test(h)) return "cc-exp-year";
-    if (type === "password") {
-      if (ac === "new-password" || /new|confirm|create|repeat|retype|signup|register/.test(h)) return "new-password";
-      return "password";
-    }
-    const acTokens = ac.split(/\s+/);
-    if (acTokens.includes("webauthn") && type !== "password") return "username"; // passkey autofill field
-    if (acTokens.includes("username") || ac === "email" || type === "email" || /user|login|email|e-mail|account|identifier/.test(h)) {
-      // a login username only if there's a password field nearby (or it's a username-first page)
-      const scope = el.form || document;
-      if (scope.querySelector("input[type=password]") || acTokens.includes("username") || /login|signin|sign.?in|identifier/.test(h + location.pathname)) return "username";
-      if (ac === "email" || type === "email") return "id-email";
-    }
-    const idMap = { "given-name": "id-first", "family-name": "id-last", name: "id-name", tel: "id-phone", "street-address": "id-address1", "address-line1": "id-address1",
-      "address-line2": "id-address2", "address-level2": "id-city", "address-level1": "id-state", "postal-code": "id-zip", country: "id-country", "country-name": "id-country", organization: "id-company", bday: "id-birthday" };
-    if (idMap[ac]) return idMap[ac];
+    const k = acKind(el);
+    const w = words(el);
+    if (isText && isOtpField(el, ac)) return "totp";
+    if (k === "current-password") return "password";
+    if (k === "new-password") return "new-password";
+    if (k === "username" || k === "webauthn") return "username";
+    if (AC_MAP[k]) return k === "email" && isText && loginContext(el) ? "username" : AC_MAP[k];
+    if (type === "password") return /new|confirm|create|repeat|retype|signup|register/.test(hint(el)) ? "new-password" : "password";
+    // ---- cards ----
+    if (isRadio) return /(^| )(visa|mastercard|master card|amex|american express|discover|jcb|diners|maestro|credit|debit)( |$)/.test(w + " " + String(el.value).toLowerCase())
+      && /card|payment|cc/.test(w + " " + (el.name || "").toLowerCase()) ? "cc-type" : null;
+    if (/(^| )(card|cc|credit card|debit card) ?(number|num|no)( |$)|cardnumber|ccnumber|ccnum|cardnum/.test(w)) return "cc-number";
+    if (/name on card|card ?holder|cardholder|(^| )cc ?name( |$)|card name/.test(w)) return "cc-name";
+    if (/(^| )(cvv|cvv2|cvc|cvc2|csc|cvn|cid|card ?code|card ?security|security ?code)( |$)/.test(w)) return "cc-csc";
+    if (/(card|cc|payment) ?(type|brand)|cardtype|cardbrand/.test(w) || (isSelect && /visa/.test(optionWords(el)) && /master ?card|amex|american express/.test(optionWords(el)))) return "cc-type";
+    const expiry = /(^| )(exp|expiry|expiration|expires|valid thru|valid until|card ?exp)/.test(w);
+    if (/(^| )(exp|expiry|expiration|cc|card)[a-z ]*(month|mm)( |$)|(^| )exp ?m( |$)/.test(w) || (isSelect && expiry && /january|jan|(^| )12( |$)/.test(optionWords(el)) && !/year/.test(w))) return "cc-exp-month";
+    if (/(^| )(exp|expiry|expiration|cc|card)[a-z ]*(year|yy|yyyy)( |$)|(^| )exp ?y( |$)/.test(w) || (isSelect && expiry && /20[2-4][0-9]/.test(optionWords(el)))) return "cc-exp-year";
+    if (expiry || /mm ?yy/.test(w)) return "cc-exp";
+    // ---- logins ----
+    if (isText && (type === "email" || /(^| )(user|username|login|email|e mail|account|identifier)( |$)/.test(w)) && loginContext(el)) return "username";
+    // ---- addresses and contact details ----
+    if (type === "email" || /(^| )(e ?mail|email address)( |$)/.test(w)) return "id-email";
+    if (type === "tel" || /(^| )(phone|mobile|telephone|tel|cell|phone number|mobile number)( |$)/.test(w)) return "id-phone";
+    if (/(^| )(first ?name|given ?name|fname|forename|first)( |$)/.test(w)) return "id-first";
+    if (/(^| )(middle ?name|middle)( |$)/.test(w)) return "id-middle";
+    if (/(^| )(last ?name|surname|family ?name|lname|last)( |$)/.test(w)) return "id-last";
+    if (/(^| )(company|organi[sz]ation|business ?name|employer)( |$)/.test(w)) return "id-company";
+    if (/(^| )(address ?(line)? ?2|addr2|apt|apartment|suite|unit|line2|address2)( |$)/.test(w)) return "id-address2";
+    if (/(^| )(address ?(line)? ?3|line3|address3)( |$)/.test(w)) return "id-address3";
+    if (/(^| )(address|street|address ?(line)? ?1|addr1|addr|line1|address1|street address)( |$)/.test(w)) return "id-address1";
+    if (/(^| )(city|town|locality|suburb)( |$)/.test(w)) return "id-city";
+    if (/(^| )(state|province|region|county|prefecture)( |$)/.test(w)) return "id-state";
+    if (/(^| )(zip|zip ?code|postal|post ?code|postcode|postal ?code|pin ?code)( |$)/.test(w)) return "id-zip";
+    if (/(^| )(country|nation)( |$)/.test(w)) return "id-country";
+    if (/(^| )(birthday|birth ?date|date of birth|dob)( |$)/.test(w)) return "id-birthday";
+    if (/(^| )(full ?name|your ?name|name)( |$)/.test(w) && !/user|company|card|account|login|file/.test(w)) return "id-name";
     return null;
   }
 
   const KIND_GROUP = (k) => k === "username" || k === "password" ? "login" : k === "new-password" ? "new" : k === "totp" ? "totp" : k.startsWith("cc-") ? "card" : k.startsWith("id-") ? "identity" : null;
 
   /* ---------- filling ---------- */
+  function flash(el) {
+    el.style.transition = "background-color .4s";
+    const bg = el.style.backgroundColor;
+    el.style.backgroundColor = "rgba(31,157,90,.12)";
+    setTimeout(() => (el.style.backgroundColor = bg), 600);
+  }
   function setValue(el, value) {
     if (value == null || value === "") return;
     el.focus();
@@ -91,52 +123,179 @@
     setter.call(el, value);
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
-    el.style.transition = "background-color .4s";
-    const bg = el.style.backgroundColor;
-    el.style.backgroundColor = "rgba(31,157,90,.12)";
-    setTimeout(() => (el.style.backgroundColor = bg), 600);
+    el.dispatchEvent(new Event("blur", { bubbles: true }));
+    flash(el);
+  }
+
+  // ---- dropdowns ----
+  const norm = (s) => String(s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+  const MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+  function choose(sel, tests) {
+    const opts = [...sel.options].filter((o) => !o.disabled && (o.value !== "" || o.text.trim() !== ""));
+    for (const t of tests) {
+      const o = opts.find((o) => t(norm(o.text), norm(o.value)));
+      if (o) {
+        sel.value = o.value; o.selected = true;
+        sel.dispatchEvent(new Event("input", { bubbles: true }));
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+        flash(sel);
+        return true;
+      }
+    }
+    return false;
+  }
+  const num = (s) => (/^\d+$/.test(s) ? +s : NaN);
+  function chooseMonth(sel, m) {
+    m = +m;
+    if (!m) return false;
+    const name = MONTHS[m - 1], abbr = name.slice(0, 3);
+    return choose(sel, [(t, v) => num(v) === m, (t) => num(t) === m, (t) => num(t.split(" ")[0]) === m,
+      (t) => t === name || t === abbr, (t) => t.split(" ").includes(name) || t.split(" ").includes(abbr)]);
+  }
+  function chooseYear(sel, y) {
+    y = String(y);
+    if (!y) return false;
+    const full = y.length === 2 ? "20" + y : y, short = full.slice(-2);
+    return choose(sel, [(t, v) => v === full || t === full, (t, v) => v === short || t === short, (t) => t.endsWith(full)]);
+  }
+  const BRAND_WORDS = { Visa: ["visa"], Mastercard: ["mastercard", "master card", "mc"], Amex: ["amex", "american express"],
+    Discover: ["discover"], JCB: ["jcb"], Diners: ["diners", "diners club"], Maestro: ["maestro"] };
+  const cardBrand = (n) => { n = String(n || "").replace(/\D/g, ""); const p4 = +n.slice(0, 4) || 0;
+    return n.startsWith("4") ? "Visa" : /^5[1-5]/.test(n) || (p4 >= 2221 && p4 <= 2720) ? "Mastercard" : /^3[47]/.test(n) ? "Amex"
+      : /^(6011|65|64[4-9])/.test(n) ? "Discover" : p4 >= 3528 && p4 <= 3589 ? "JCB" : /^(36|30[0-5]|38)/.test(n) ? "Diners" : /^(50|5[6-8]|6)/.test(n) ? "Maestro" : ""; };
+  function chooseCardType(sel, data) {
+    const brand = data.brand || cardBrand(data.number);
+    const words = BRAND_WORDS[brand] || [];
+    const kind = data.cardType === "debit" ? "debit" : "credit";
+    return choose(sel, [(t, v) => words.some((x) => t === x || v === x), (t, v) => words.some((x) => t.includes(x) || v.includes(x)),
+      (t, v) => t.includes(kind) || v.includes(kind)]);
+  }
+  const COUNTRY_ALIASES = { "united states": ["us", "usa", "united states of america", "america"], "united kingdom": ["uk", "gb", "great britain", "britain", "england"] };
+  let regionNames = null;
+  try { regionNames = new Intl.DisplayNames(["en"], { type: "region" }); } catch { /* old browser */ }
+  function countryNames(c) {
+    const n = norm(c), out = new Set([n]);
+    if (/^[a-z]{2}$/.test(n) && regionNames) { try { out.add(norm(regionNames.of(n.toUpperCase()))); } catch { /* */ } }
+    for (const [name, al] of Object.entries(COUNTRY_ALIASES)) if (name === n || al.includes(n)) { out.add(name); al.forEach((a) => out.add(a)); }
+    return out;
+  }
+  function chooseCountry(sel, country) {
+    const want = countryNames(country);
+    const nameOf = (code) => { try { return /^[a-z]{2}$/.test(code) && regionNames ? norm(regionNames.of(code.toUpperCase())) : ""; } catch { return ""; } };
+    return choose(sel, [(t, v) => want.has(t) || want.has(v), (t, v) => want.has(nameOf(v)) || want.has(nameOf(t)), (t) => [...want].some((x) => x.length > 3 && t.startsWith(x))]);
+  }
+  const US_STATES = { al: "alabama", ak: "alaska", az: "arizona", ar: "arkansas", ca: "california", co: "colorado", ct: "connecticut", de: "delaware",
+    dc: "district of columbia", fl: "florida", ga: "georgia", hi: "hawaii", id: "idaho", il: "illinois", in: "indiana", ia: "iowa", ks: "kansas",
+    ky: "kentucky", la: "louisiana", me: "maine", md: "maryland", ma: "massachusetts", mi: "michigan", mn: "minnesota", ms: "mississippi",
+    mo: "missouri", mt: "montana", ne: "nebraska", nv: "nevada", nh: "new hampshire", nj: "new jersey", nm: "new mexico", ny: "new york",
+    nc: "north carolina", nd: "north dakota", oh: "ohio", ok: "oklahoma", or: "oregon", pa: "pennsylvania", ri: "rhode island", sc: "south carolina",
+    sd: "south dakota", tn: "tennessee", tx: "texas", ut: "utah", vt: "vermont", va: "virginia", wa: "washington", wv: "west virginia",
+    wi: "wisconsin", wy: "wyoming", pr: "puerto rico" };
+  function chooseState(sel, state) {
+    const n = norm(state), want = new Set([n]);
+    if (US_STATES[n]) want.add(US_STATES[n]);
+    for (const [code, name] of Object.entries(US_STATES)) if (name === n) want.add(code);
+    return choose(sel, [(t, v) => want.has(t) || want.has(v), (t) => [...want].some((x) => x.length > 2 && t.startsWith(x))]);
+  }
+  function chooseText(sel, value) {
+    const n = norm(value);
+    return !!n && choose(sel, [(t, v) => t === n || v === n, (t) => t.startsWith(n)]);
+  }
+  function chooseRadio(el, data) {
+    const group = el.name ? [...(el.form || document).querySelectorAll(`input[type=radio][name="${CSS.escape(el.name)}"]`)] : [el];
+    const brand = data.brand || cardBrand(data.number), words = BRAND_WORDS[brand] || [];
+    const kind = data.cardType === "debit" ? "debit" : "credit";
+    const text = (r) => norm([r.value, r.id, r.getAttribute("aria-label"), r.labels?.[0]?.textContent].join(" "));
+    const pick = group.find((r) => words.some((x) => text(r).split(" ").includes(x) || text(r).includes(x))) || group.find((r) => text(r).includes(kind));
+    if (pick && !pick.checked) { pick.click(); flash(pick); return true; }
+    return !!pick;
+  }
+
+  // ---- what goes in each kind of field ----
+  function nameParts(full) {
+    const p = String(full || "").trim().split(/\s+/).filter(Boolean);
+    return { first: p[0] || "", middle: p.length > 2 ? p.slice(1, -1).join(" ") : "", last: p.length > 1 ? p[p.length - 1] : "" };
+  }
+  function valueFor(kind, data, el) {
+    if (data.type === "card") {
+      const y = String(data.expYear || ""), m = String(data.expMonth || "").replace(/^(\d)$/, "0$1");
+      const yy = y.slice(-2), yyyy = y.length === 2 ? "20" + y : y;
+      const ph = (el.placeholder || "").toLowerCase();
+      const holder = nameParts(data.cardholder);
+      return { "cc-number": data.number, "cc-name": data.cardholder, "cc-given": holder.first, "cc-family": holder.last, "cc-csc": data.cvv,
+        "cc-exp-month": m, "cc-exp-year": el.maxLength === 2 || /^yy$/.test(ph) ? yy : yyyy,
+        "cc-exp": m && y ? (/yyyy/.test(ph) || el.maxLength >= 7 ? `${m}/${yyyy}` : /\s\/\s/.test(ph) ? `${m} / ${yy}` : `${m}/${yy}`) : "" }[kind];
+    }
+    if (data.type === "identity" || data.type === "login") {
+      const n = nameParts(data.fullName);
+      const [by, bm, bd] = String(data.birthday || "").split("-");
+      return { "id-first": data.firstName || n.first, "id-middle": data.middleName || n.middle, "id-last": data.lastName || n.last,
+        "id-name": data.fullName || [data.firstName, data.lastName].filter(Boolean).join(" "), "id-email": data.email, "id-phone": data.phone,
+        "id-address1": data.address1, "id-address2": data.address2, "id-address3": data.address3, "id-city": data.city, "id-state": data.state,
+        "id-zip": data.zip, "id-country": data.country, "id-company": data.company, "id-birthday": data.birthday,
+        "id-bday-day": bd, "id-bday-month": bm, "id-bday-year": by, username: data.email }[kind];
+    }
+    return null;
+  }
+  function fillField(el, kind, data) {
+    if (el instanceof HTMLInputElement && el.type === "radio") return kind === "cc-type" && chooseRadio(el, data);
+    if (el instanceof HTMLSelectElement) {
+      if (kind === "cc-exp-month" || kind === "id-bday-month") return chooseMonth(el, kind === "cc-exp-month" ? data.expMonth : String(data.birthday || "").split("-")[1]);
+      if (kind === "cc-exp-year" || kind === "id-bday-year") return chooseYear(el, kind === "cc-exp-year" ? data.expYear : String(data.birthday || "").split("-")[0]);
+      if (kind === "cc-type") return chooseCardType(el, data);
+      if (kind === "id-country") return chooseCountry(el, data.country);
+      if (kind === "id-state") return chooseState(el, data.state);
+      const v = valueFor(kind, data, el);
+      return v ? chooseText(el, v) : false;
+    }
+    if (kind === "cc-type") return false;
+    const v = valueFor(kind, data, el);
+    if (!v) return false;
+    setValue(el, v);
+    return true;
   }
 
   function fieldsIn(scope) {
-    return [...scope.querySelectorAll("input")].filter((el) => visible(el)).map((el) => ({ el, kind: classify(el) })).filter((x) => x.kind);
+    return [...scope.querySelectorAll("input, select, textarea")]
+      .filter((el) => (el instanceof HTMLInputElement && el.type === "radio") || visible(el))
+      .map((el) => ({ el, kind: classify(el) })).filter((x) => x.kind);
   }
 
   function fill(data, anchor) {
-    const scope = anchor?.form || anchor?.closest("form") || document;
+    const group = data.type === "card" ? "card" : data.type === "identity" ? "identity" : null;
+    let scope = anchor ? anchor.form || anchor.closest("form") || document : document;
     let fields = fieldsIn(scope);
+    if (group && scope !== document && !fields.some((f) => KIND_GROUP(f.kind) === group)) fields = fieldsIn((scope = document));
     if (!fields.length && scope !== document) fields = fieldsIn(document);
     let did = false, otpDone = false;
+    const radioGroups = new Set();
     for (const { el, kind } of fields) {
-      let v = null;
       if (data.type === "login") {
+        let v = null;
         if (kind === "username") v = data.username;
         else if (kind === "password") v = data.password;
         else if (kind === "totp" && data.totp && !otpDone && !fields.some((f) => f.kind === "password")) { fillCode(el, data.totp); otpDone = did = true; continue; }
-      } else if (data.type === "card") {
-        const y = String(data.expYear || ""), m = String(data.expMonth || "").padStart(2, "0");
-        v = { "cc-number": data.number, "cc-name": data.cardholder, "cc-csc": data.cvv, "cc-exp-month": m,
-          "cc-exp-year": (el.maxLength === 2 ? y.slice(-2) : y), "cc-exp": m && y ? `${m}/${y.slice(-2)}` : "" }[kind];
-      } else if (data.type === "identity") {
-        const [first, ...rest] = (data.fullName || "").split(" ");
-        v = { "id-first": data.firstName || first, "id-last": data.lastName || rest.join(" "), "id-name": data.fullName, "id-email": data.email, "id-phone": data.phone,
-          "id-address1": data.address1, "id-address2": data.address2, "id-city": data.city, "id-state": data.state, "id-zip": data.zip,
-          "id-country": data.country, "id-company": data.company, "id-birthday": data.birthday, "username": data.email }[kind];
+        if (v) { setValue(el, v); did = true; }
       } else if (data.type === "totp") {
         if (kind === "totp") { fillCode(el, data.code); did = true; break; }
-      }
-      if (v) { setValue(el, v); did = true; }
-    }
-    // selects for card expiry
-    if (data.type === "card") {
-      for (const sel of scope.querySelectorAll("select")) {
-        const h = hint(sel);
-        const want = /month|mm/.test(h) ? String(+data.expMonth) : /year|yy/.test(h) ? String(data.expYear) : null;
-        if (!want) continue;
-        const opt = [...sel.options].find((o) => o.value === want || +o.value === +want || o.value.endsWith(want.slice(-2)) || o.text.trim() === want);
-        if (opt) { sel.value = opt.value; sel.dispatchEvent(new Event("change", { bubbles: true })); did = true; }
+      } else if (group && (KIND_GROUP(kind) === group || (group === "identity" && kind === "username"))) {
+        if (el.type === "radio") { if (radioGroups.has(el.name)) continue; radioGroups.add(el.name); }
+        if (fillField(el, kind, data)) did = true;
       }
     }
     return did;
+  }
+
+  // Frames that may receive a fill meant for the whole page: the page's own site, or a payment provider's.
+  let lastNonce = null;
+  const PAYMENT_HOSTS = /(^|\.)(stripe\.com|stripe\.network|braintreegateway\.com|braintree-api\.com|adyen\.com|adyenpayments\.com|checkout\.com|paypal\.com|paypalobjects\.com|squareup\.com|squarecdn\.com|recurly\.com|chargebee\.com|authorize\.net|worldpay\.com|mollie\.com|klarna\.com|razorpay\.com|paddle\.com|shopify\.com|shopifycs\.com|bluesnap\.com|cybersource\.com|globalpay\.com|spreedly\.com|vgs\.io|verygoodvault\.com|evervault\.com)$/;
+  const siteOf = (host) => host.split(".").slice(-2).join(".");
+  function frameMayFill(topOrigin, allowPayments) {
+    if (window.top === window) return true;
+    try {
+      const top = new URL(topOrigin).hostname;
+      return siteOf(top) === siteOf(location.hostname) || (allowPayments && PAYMENT_HOSTS.test(location.hostname));
+    } catch { return false; }
   }
 
   /* ---------- UI (shadow DOM so pages can't restyle or read it easily) ---------- */
@@ -285,7 +444,14 @@
     const data = await send({ type: "fill", id: it.dataset.id });
     if (data.error) { menu.innerHTML = `<div class="msg">${esc(data.message)}</div>`; return; }
     if (it.dataset.totpId) { if (data.totp) fillCode(anchor, data.totp); }
-    else fill(data, anchor);
+    else {
+      fill(data, anchor);
+      // Card and address fields can sit in other frames (e.g. Stripe puts each card field in its own).
+      if (data.type === "card" || data.type === "identity") {
+        lastNonce = Math.random().toString(36).slice(2);
+        send({ type: "fill-frames", data, nonce: lastNonce });
+      }
+    }
     hideMenu();
   });
 
@@ -314,7 +480,13 @@
   /* ---------- messages from the popup / background ---------- */
   B.runtime.onMessage.addListener((msg) => {
     if (msg.type === "do-fill") {
-      const anchor = current?.el || document.querySelector("input[type=password]") || document.querySelector("input");
+      if (msg.nonce) { // a fill sent to every frame of the page
+        if (msg.nonce === lastNonce) return;                       // the frame it came from already filled
+        if (!frameMayFill(msg.topOrigin, msg.data.type !== "login")) return; // ads and other third parties never get it
+        fill(msg.data, msg.data.type === "login" ? current?.el || document.querySelector("input[type=password]") : null);
+        return;
+      }
+      const anchor = current?.el || (msg.data.type === "login" ? document.querySelector("input[type=password]") || document.querySelector("input") : null);
       fill(msg.data, anchor);
     } else if (msg.type === "insert-generated") {
       const el = document.activeElement;
@@ -330,8 +502,40 @@
   });
 
   /* ---------- offer to save after you sign in ---------- */
+  // Cards, addresses, email and phone typed into a form, to offer saving them (never the CVC).
+  const ID_FIELD = { "id-first": "firstName", "id-middle": "middleName", "id-last": "lastName", "id-name": "fullName", "id-email": "email",
+    "id-phone": "phone", "id-address1": "address1", "id-address2": "address2", "id-address3": "address3", "id-city": "city", "id-state": "state",
+    "id-zip": "zip", "id-country": "country", "id-company": "company", "id-birthday": "birthday" };
+  const luhn = (n) => { const d = [...n].map(Number).reverse(); return d.length >= 12 && d.length <= 19 && d.reduce((t, x, i) => t + (i % 2 ? (x * 2 > 9 ? x * 2 - 9 : x * 2) : x), 0) % 10 === 0; };
+  const shownValue = (el) => (el instanceof HTMLSelectElement ? (el.selectedOptions[0]?.value ? el.selectedOptions[0].text.trim() : "") : String(el.value || "").trim());
+  function captureItems(scope) {
+    const fields = fieldsIn(scope);
+    const card = {}, ident = {};
+    for (const { el, kind } of fields) {
+      const v = shownValue(el);
+      if (!v) continue;
+      if (kind === "cc-number") card.number = v.replace(/\D/g, "");
+      else if (kind === "cc-name") card.cardholder = v;
+      else if (kind === "cc-given") card.first = v;
+      else if (kind === "cc-family") card.last = v;
+      else if (kind === "cc-exp") { const m = v.match(/(\d{1,2})\s*[\/\-.]?\s*(\d{2,4})/); if (m) { card.expMonth = m[1].padStart(2, "0"); card.expYear = m[2].length === 2 ? "20" + m[2] : m[2]; } }
+      else if (kind === "cc-exp-month") { const n = +String(el.value).replace(/\D/g, "") || MONTHS.findIndex((x) => norm(v).startsWith(x.slice(0, 3))) + 1; if (n >= 1 && n <= 12) card.expMonth = String(n).padStart(2, "0"); }
+      else if (kind === "cc-exp-year") { const y = v.replace(/\D/g, ""); card.expYear = y.length === 2 ? "20" + y : y; }
+      else if (ID_FIELD[kind] && !ident[ID_FIELD[kind]]) ident[ID_FIELD[kind]] = v;
+    }
+    if (!card.cardholder && (card.first || card.last)) card.cardholder = [card.first, card.last].filter(Boolean).join(" ");
+    delete card.first; delete card.last;
+    const out = { url: location.href };
+    if (card.number && luhn(card.number)) out.card = card;
+    if (!ident.fullName && (ident.firstName || ident.lastName)) ident.fullName = [ident.firstName, ident.middleName, ident.lastName].filter(Boolean).join(" ");
+    const hasPassword = !!scope.querySelector?.("input[type=password]");
+    if (!hasPassword && Object.keys(ident).length >= 2 && (ident.address1 || ident.phone || ident.email)) out.identity = ident;
+    if (out.card || out.identity) send({ type: "submitted-items", ...out });
+  }
+
   function capture(form) {
     const scope = form || document;
+    try { captureItems(scope); } catch { /* never break the page's submit */ }
     const pws = [...scope.querySelectorAll("input[type=password]")].filter((p) => p.value);
     if (!pws.length) return;
     const pw = pws[pws.length - 1].value;
@@ -351,7 +555,7 @@
   async function maybeOfferSave() {
     if (window.top !== window) return;
     const p = await send({ type: "pending-save" });
-    if (p.none || !p.status) return;
+    if (p.none || !p.status) return maybeOfferItem();
     const site = location.hostname.replace(/^www\./, "");
     if ((await send({ type: "is-never", site })).never) return;
     attach();
@@ -366,6 +570,27 @@
       if (s === "never") await send({ type: "never-save", site });
       else await send({ type: "save-pending", save: s === "save" });
       slot.innerHTML = "";
+      maybeOfferItem();
+    });
+    setTimeout(() => (slot.innerHTML = ""), 30000);
+  }
+
+  async function maybeOfferItem() {
+    const p = await send({ type: "pending-item" });
+    if (!p.status) return;
+    attach();
+    const slot = root.querySelector(".slot");
+    const what = p.type === "card" ? "card" : "address and contact details";
+    slot.innerHTML = `<div class="banner"><div class="hd" style="padding:0 0 6px">${ICON} Jace Passwords</div>
+      <b>${p.status === "update" ? `Update your saved ${what}?` : `Save this ${what} for next time?`}</b>
+      <div class="muted" style="margin-top:4px;white-space:normal">${esc(p.summary || p.title || "")}</div>
+      <div class="row"><button class="btn" data-s="save">${p.status === "update" ? "Update" : "Save"}</button><button class="btn sec" data-s="later">Not now</button></div></div>`;
+    slot.querySelector(".banner").addEventListener("click", async (e) => {
+      const s = e.target.dataset.s;
+      if (!s) return;
+      await send({ type: "save-item-pending", save: s === "save", itemType: p.type });
+      slot.innerHTML = "";
+      maybeOfferItem(); // a card and an address from the same checkout: one after the other
     });
     setTimeout(() => (slot.innerHTML = ""), 30000);
   }

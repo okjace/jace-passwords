@@ -15,10 +15,34 @@
 </div></form>
 <form id="promo"><h3>Not 2FA</h3><label>Promo code<input name="promo_code" maxlength="8"></label></form>
 <form id="pay"><h3>Checkout</h3>
-  <label>Name on card<input name="ccname" autocomplete="cc-name"></label>
-  <label>Card number<input name="cardnumber" autocomplete="cc-number"></label>
-  <label>Expiry<input name="exp" autocomplete="cc-exp" placeholder="MM/YY"></label>
-  <label>CVC<input name="cvc" autocomplete="cc-csc"></label></form>
+  <label>Card type<select name="card_type"><option value="">Choose…</option><option value="VI">Visa</option><option value="MC">Mastercard</option><option value="AX">American Express</option></select></label>
+  <fieldset><legend>Brand</legend><label><input type="radio" name="payment_brand" value="visa"> Visa</label> <label><input type="radio" name="payment_brand" value="mastercard"> Mastercard</label> <label><input type="radio" name="payment_brand" value="amex"> Amex</label></fieldset>
+  <fieldset><legend>Card kind</legend><label><input type="radio" name="card_kind" value="credit"> Credit</label> <label><input type="radio" name="card_kind" value="debit"> Debit</label></fieldset>
+  <label>First name on card<input name="cc_first" autocomplete="cc-given-name"></label>
+  <label>Last name on card<input name="cc_last" autocomplete="cc-family-name"></label>
+  <label>Card number<input name="cardnumber" autocomplete="billing cc-number"></label>
+  <label>Expiry month<select name="exp_month" autocomplete="cc-exp-month"><option value="">MM</option><option value="01">01 - January</option><option value="02">02 - February</option><option value="03">03 - March</option><option value="04">04 - April</option><option value="05">05 - May</option><option value="06">06 - June</option><option value="07">07 - July</option><option value="08">08 - August</option><option value="09">09 - September</option><option value="10">10 - October</option><option value="11">11 - November</option><option value="12">12 - December</option></select></label>
+  <label>Expiry year<select name="exp_year"><option value="">YYYY</option><option value="2026">2026</option><option value="2027">2027</option><option value="2028">2028</option><option value="2029">2029</option><option value="2030">2030</option><option value="2031">2031</option><option value="2032">2032</option><option value="2033">2033</option><option value="2034">2034</option><option value="2035">2035</option></select></label>
+  <label>CVC<input name="cvc"></label>
+  <button>Pay</button></form>
+<form id="billing"><h3>Billing address</h3>
+  <label>Email<input type="email" name="email" autocomplete="billing email"></label>
+  <label>Phone<input type="tel" name="phone" autocomplete="billing tel"></label>
+  <label>Address<input name="addr1" autocomplete="billing address-line1"></label>
+  <label>Apartment, suite<input name="addr2" autocomplete="billing address-line2"></label>
+  <label>City<input name="city" autocomplete="billing address-level2"></label>
+  <label>State<select name="state" autocomplete="billing address-level1"><option value="">State</option><option value="CA">California</option><option value="NY">New York</option><option value="TX">Texas</option></select></label>
+  <label>ZIP<input name="zip" autocomplete="billing postal-code"></label>
+  <label>Country<select name="country" autocomplete="billing country"><option value="">Country</option><option value="CA">Canada</option><option value="GB">United Kingdom</option><option value="US">United States</option></select></label>
+  <button>Continue</button></form>
+<form id="shipping"><h3>Shipping (no autocomplete hints)</h3>
+  <label>First name<input name="first_name"></label>
+  <label>Last name<input name="last_name"></label>
+  <label>Street address<input name="street"></label>
+  <label>Town / City<input name="town"></label>
+  <label>Postcode<input name="postcode"></label>
+  <label>Mobile number<input name="mobile"></label>
+  <button>Ship here</button></form>
 <form id="signup"><h3>Create account</h3>
   <label>New password<input type="password" autocomplete="new-password"></label>
   <label>Confirm<input type="password" name="confirm_password"></label></form>
@@ -26,12 +50,16 @@
 const canned = {
   status: { locked: false, account: { username: "jace" } },
   match: { site: "example.com", logins: [{ id: "L1", type: "login", title: "Example", username: "jace@example.com", hasPassword: true, hasTotp: true }],
-           cards: [{ id: "C1", type: "card", title: "Everyday Visa", last4: "1111", brand: "Visa", cardType: "debit" }], identities: [] },
+           cards: [{ id: "C1", type: "card", title: "Everyday Visa", last4: "1111", brand: "Visa", cardType: "debit" }],
+          identities: [{ id: "I1", type: "identity", title: "Home", name: "Jace Tester", email: "jace@example.com" }] },
   fill: { L1: { type: "login", username: "jace@example.com", password: "s3cret-Pass!", totp: "123456" },
-          C1: { type: "card", cardholder: "JACE TESTER", number: "4111111111111111", expMonth: "09", expYear: "2029", cvv: "123" } },
+          C1: { type: "card", cardholder: "Jace Tester", number: "4111111111111111", expMonth: "09", expYear: "2029", cvv: "123", brand: "Visa", cardType: "debit" },
+          I1: { type: "identity", fullName: "Jace Q Tester", email: "jace@example.com", phone: "+1 555 0100", address1: "1 Main St", address2: "Apt 4",
+                city: "Los Angeles", state: "California", zip: "90001", country: "United States" } },
   generate: { password: "Gen-Erated-Pa55!" },
 };
 window.chrome = { runtime: { onMessage: { addListener() {} }, sendMessage(msg, cb) {
+  if (msg.type === "submitted-items") window.__captured = msg;
   const r = msg.type === "fill" ? canned.fill[msg.id] : msg.type === "totp-for-tab" ? { totp: "123456" } : canned[msg.type] || { none: true };
   setTimeout(() => cb(r), 10);
 } } };

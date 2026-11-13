@@ -95,6 +95,7 @@ async function recallFilled(tabId) {
   return (await B.storage.session.get("filled:" + tabId))["filled:" + tabId] || null;
 }
 const pendingSave = {};  // tabId -> { url, username, password, at }
+const pendingItems = {}; // tabId -> { url, card, identity, at }: details typed into a form, to offer saving
 
 function senderOrigin(sender) {
   if (sender.origin && sender.origin !== "null") return sender.origin;
@@ -198,6 +199,29 @@ async function handle(msg, sender) {
       if (!p || !msg.save) return { ok: true };
       return call("save", "POST", p);
     }
+    case "submitted-items":
+      pendingItems[tabId] = { url: msg.url, card: msg.card, identity: msg.identity, at: Date.now() };
+      return { ok: true };
+    case "pending-item": {
+      const p = pendingItems[tabId];
+      if (!p || Date.now() - p.at > 2 * 60 * 1000) return {};
+      for (const type of ["card", "identity"]) {
+        if (!p[type]) continue;
+        const check = await call("save-check-item", "POST", { type, fields: p[type] });
+        if (check.error || check.status === "unchanged") { delete p[type]; continue; }
+        return { type, status: check.status, title: check.title, summary: check.summary };
+      }
+      delete pendingItems[tabId];
+      return {};
+    }
+    case "save-item-pending": {
+      const p = pendingItems[tabId];
+      if (!p || !p[msg.itemType]) return { ok: true };
+      const fields = p[msg.itemType];
+      delete p[msg.itemType];
+      if (!msg.save) return { ok: true };
+      return call("save-item", "POST", { type: msg.itemType, fields });
+    }
     case "never-save": {
       delete pendingSave[tabId];
       const never = (await B.storage.local.get("never")).never || [];
@@ -209,11 +233,21 @@ async function handle(msg, sender) {
       const never = (await B.storage.local.get("never")).never || [];
       return { never: never.includes(msg.site) };
     }
+    case "fill-frames": { // card/address fill for every frame of the tab (each frame decides if it may fill)
+      if (!sender.tab) return { error: "forbidden" };
+      let topOrigin = "";
+      try { topOrigin = new URL(sender.tab.url).origin; } catch { /* */ }
+      await B.tabs.sendMessage(sender.tab.id, { type: "do-fill", data: msg.data, nonce: msg.nonce, topOrigin }).catch(() => {});
+      return { ok: true };
+    }
     case "fill-in-tab": {
       // from the popup: ask the page to fill
       const data = await handle({ type: "fill", id: msg.id, tabId: msg.tabId }, {});
       if (data.error) return data;
-      await B.tabs.sendMessage(msg.tabId, { type: "do-fill", data }).catch(() => {});
+      // Every frame gets it, but only the page's own site fills (and payment providers, for cards/addresses).
+      let topOrigin = "";
+      try { topOrigin = new URL((await B.tabs.get(msg.tabId)).url).origin; } catch { /* */ }
+      await B.tabs.sendMessage(msg.tabId, { type: "do-fill", data, nonce: "popup-" + Date.now(), topOrigin }).catch(() => {});
       return { ok: true };
     }
     case "open-app": B.tabs.create({ url: APP + "/" }); return { ok: true };
@@ -246,7 +280,7 @@ B.runtime.onMessage.addListener((msg, sender, reply) => {
   return true;
 });
 
-B.tabs.onRemoved.addListener((id) => { delete lastFilled[id]; delete pendingSave[id]; });
+B.tabs.onRemoved.addListener((id) => { delete lastFilled[id]; delete pendingSave[id]; delete pendingItems[id]; });
 
 B.runtime.onInstalled.addListener(() => {
   B.contextMenus.create({ id: "jp-generate", title: "Generate a strong password", contexts: ["editable"] });

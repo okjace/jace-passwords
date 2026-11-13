@@ -965,6 +965,37 @@
       await changed();
       return { status: "created", id: it.id };
     }
+    if (route === "save-check-item" || route === "save-item") { // cards and addresses typed into forms
+      const kind = body.type;
+      if (kind !== "card" && kind !== "identity") throw new ApiError("Unknown item type.");
+      const fields = Object.fromEntries(Object.entries(body.fields || {}).map(([k, x]) => [k, String(x ?? "").trim()]).filter(([k, x]) => x && k !== "cvv"));
+      const nrm = (x) => String(x || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      const digits = (x) => String(x || "").replace(/\D/g, "");
+      let title, summary;
+      if (kind === "card") {
+        const num = digits(fields.number), brand = cardBrand(num) || "Card";
+        const exp = fields.expMonth ? `${fields.expMonth}/${String(fields.expYear || "").slice(-2)}` : "";
+        title = `${brand} •••• ${num.slice(-4)}`;
+        summary = [title, fields.cardholder, exp && "expires " + exp].filter(Boolean).join(" · ");
+      } else {
+        const name = fields.fullName || [fields.firstName, fields.lastName].filter(Boolean).join(" ");
+        title = name || fields.email || fields.address1 || "Address";
+        summary = [name, [fields.address1, fields.city, fields.state, fields.zip].filter(Boolean).join(", "), fields.email, fields.phone].filter(Boolean).join(" · ");
+      }
+      const match = visible().find((i) => i.type === kind && (kind === "card"
+        ? fields.number && digits(i.fields?.number) === digits(fields.number)
+        : fields.address1 ? nrm(i.fields?.address1) === nrm(fields.address1) : fields.email && nrm(i.fields?.email) === nrm(fields.email)));
+      if (route === "save-check-item") {
+        if (!match) return { status: "new", title, summary };
+        const same = Object.entries(fields).every(([k, x]) => nrm(match.fields?.[k]) === nrm(x));
+        return { status: same ? "unchanged" : "update", title: match.title, summary };
+      }
+      if (match) { updateItem(match.id, { fields: { ...match.fields, ...fields } }); await changed(); return { status: "updated", id: match.id }; }
+      if (kind === "card") { fields.cardType ||= "credit"; fields.brand = cardBrand(digits(fields.number)); }
+      const it = createItem({ type: kind, title, fields });
+      await changed();
+      return { status: "created", id: it.id };
+    }
     if (route === "passkey/list") {
       const allow = new Set(body.allow || []);
       return passkeysFor(body.rpId || "").filter(([, p]) => !allow.size || allow.has(p.credentialId))
