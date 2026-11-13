@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2
+
+- **No Secret Key with a Jace account:** a vault created while you're signed in with Jace no longer gets a Secret Key. On a new device, or on the web, you sign in with Jace and enter your master password. Your vault stays end-to-end encrypted: your master password never leaves your device, and only your Jace sign-in can download the synced copy.
+- **Existing vaults:** a vault that already has a Secret Key can drop it under **Settings → Security → Stop using a Secret Key**. You can add one back at any time.
+- **Unlinked vaults** (used without a Jace account) still get a Secret Key, as before.
+
 ## 1.0.1
 
 - **Fixed:** Sign in with Jace said "Couldn't reach Jace" in the Linux desktop app on Jace OS, Arch, Fedora and other non-Ubuntu systems. The packaged app looked for trusted certificates where Ubuntu keeps them, so every HTTPS request failed. It now uses your system's certificates, with a bundled set as a fallback.

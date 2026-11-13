@@ -68,11 +68,13 @@ Once every build passes, the workflow publishes a GitHub Release with all the do
 
 ```
 k1  = scrypt(master password, salt)        N=2^17, r=8, p=1
-k2  = HKDF-SHA256(Secret Key)              128 random bits, only on your devices
-KEK = k1 XOR k2      →  unwraps a random 256-bit vault key  →  AES-256-GCM vault
+k2  = HKDF-SHA256(Secret Key)              128 random bits, only on your devices (vaults not linked to Jace)
+KEK = k1 XOR k2   (or just k1 for a vault linked to Jace)
+KEK unwraps a random 256-bit vault key, which encrypts the vault with AES-256-GCM
 ```
 
-- **Two secrets, like 1Password:** a stolen vault can't be brute-forced from your master password alone. Your Secret Key is on the **Emergency Kit** shown when you create the vault. You need it plus your master password on a new device.
+- **With a Jace account (the default when you're signed in):** you unlock with your master password alone. On a new device, you sign in with Jace and enter your master password. Like Bitwarden or Proton Pass, the vault stays end-to-end encrypted: your master password never leaves your device. Only your Jace sign-in can download the synced copy, and that copy is useless without your master password. You can still add a Secret Key under **Settings → Security**.
+- **Without a Jace account:** like 1Password, a vault gets a Secret Key too, so a stolen vault file can't be brute-forced from your master password alone. The Secret Key is on the **Emergency Kit** shown when you create the vault.
 - **Jace sync:** "Sign in with Jace" follows Jace's developer docs, like Jace Social. On Jace OS, the app gets its token from the computer's Jace account through token exchange (`jace-account --token-for`), with no prompt. The desktop app otherwise uses OAuth 2.0 + PKCE in your normal browser with a loopback redirect. The web app uses the code flow with its client secret on Vercel, plus silent `prompt=none` sign-in. The already-encrypted vault is stored in Jace's `pw-vault` sync collection. Jace never sees your master password or Secret Key, so it can't read or reset your vault. If two devices edit at the same time, each item keeps the newest change.
 - **Local server:** listens on 127.0.0.1 only. Requests with a foreign `Host` are rejected (DNS-rebinding guard). The app window needs a session cookie that comes from a launch link only you can read. Every API call also needs a custom header. The extension needs a token it gets by pairing, and CORS is open only to extension origins.
 - **Files:** they're in `~/.local/share/jace-passwords/` on Linux, `%APPDATA%\\Jace Passwords` on Windows, and `~/Library/Application Support/Jace Passwords` on macOS, with mode 0600. `vault.json` is encrypted. `device.json` holds this device's Secret Key, Jace token and paired extensions.

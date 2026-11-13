@@ -1,4 +1,4 @@
-import tempfile, time, unittest
+import json, tempfile, time, unittest
 from pathlib import Path
 from jace_passwords import crypto, totp, generator, security, importers
 from jace_passwords.vault import Vault, VaultError
@@ -72,3 +72,44 @@ class Core(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NoSecretKey(unittest.TestCase):
+    """Vaults linked to a Jace account: master password only."""
+
+    def test_linked_vault_has_no_secret_key(self):
+        d = Path(tempfile.mkdtemp())
+        v = Vault(d)
+        self.assertIsNone(v.create("correct horse battery", {"id": "u1", "username": "jace"}, use_secret_key=False))
+        v.create_item({"type": "note", "title": "Hi", "fields": {"body": "x"}})
+        f = json.loads((d / "vault.json").read_text())
+        self.assertIs(f["kdf"]["secretKey"], False)
+        self.assertNotIn("secretKey", v.device())
+        # a new device (no device.json at all) unlocks the synced copy with just the password
+        other = Vault(Path(tempfile.mkdtemp()))
+        other.unlock("correct horse battery", file=f)
+        self.assertEqual([i["title"] for i in other.visible_items()], ["Hi"])
+        with self.assertRaises(crypto.CryptoError):
+            Vault(Path(tempfile.mkdtemp())).unlock("wrong password!!", file=f)
+        # changing the password keeps the mode
+        v.change_password("correct horse battery", "another long one")
+        self.assertFalse(v.uses_secret_key())
+        v.lock(); v.unlock("another long one")
+
+    def test_turn_secret_key_on_and_off(self):
+        d = Path(tempfile.mkdtemp())
+        v = Vault(d)
+        sk = v.create("correct horse battery", None)
+        self.assertTrue(v.uses_secret_key())
+        self.assertIsNone(v.set_secret_key("correct horse battery", False))
+        self.assertFalse(v.uses_secret_key())
+        f = json.loads((d / "vault.json").read_text())
+        Vault(Path(tempfile.mkdtemp())).unlock("correct horse battery", file=f)  # no key needed now
+        sk2 = v.set_secret_key("correct horse battery", True)
+        self.assertTrue(sk2.startswith("J1-"))
+        f = json.loads((d / "vault.json").read_text())
+        with self.assertRaises(VaultError):  # a new device must enter the Secret Key again
+            Vault(Path(tempfile.mkdtemp())).unlock("correct horse battery", file=f)
+        Vault(Path(tempfile.mkdtemp())).unlock("correct horse battery", sk2, file=f)
+        with self.assertRaises(VaultError):
+            v.set_secret_key("wrong password!!", False)

@@ -54,12 +54,16 @@ def normalize_secret_key(sk: str) -> str:
     return raw
 
 
-def derive_kek(password: str, secret_key: str, salt: bytes, kdf: dict) -> bytes:
+def derive_kek(password: str, secret_key: str | None, salt: bytes, kdf: dict) -> bytes:
     if kdf.get("name") != "scrypt":
         raise CryptoError("Unknown key derivation.")
     n, r, p = int(kdf["n"]), int(kdf["r"]), int(kdf["p"])
     k1 = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=n, r=r, p=p,
                         maxmem=128 * r * (n + p + 2) + 1024 * 1024, dklen=32)
+    if kdf.get("secretKey") is False:
+        # Vaults linked to a Jace account: the master password alone. The synced copy is only
+        # readable with your Jace sign-in, which takes the Secret Key's place.
+        return k1
     k2 = HKDF(algorithm=hashes.SHA256(), length=32, salt=salt,
               info=b"jace-passwords secret key v1").derive(normalize_secret_key(secret_key).encode())
     return bytes(a ^ b for a, b in zip(k1, k2))

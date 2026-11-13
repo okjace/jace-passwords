@@ -150,6 +150,8 @@ class App:
             "setup": v.exists(),
             "locked": not v.unlocked,
             "hasSecretKey": bool(v.device().get("secretKey")),
+            "usesSecretKey": v.uses_secret_key() if v.exists() else None,
+            "needsSecretKey": bool(v.exists() and v.uses_secret_key() and not v.device().get("secretKey")),
             "jace": self.public_account(),
             "vaultAccount": acct,
             "sync": self.sync_state,
@@ -403,7 +405,8 @@ def make_handler(app: App):
                 if not acct:
                     raise ApiError("Sign in with Jace first.")
                 remote, version = jace.pull(acct["access_token"])
-                return {"exists": bool(remote), "account": (remote or {}).get("account")}
+                return {"exists": bool(remote), "account": (remote or {}).get("account"),
+                        "usesSecretKey": Vault.file_uses_secret_key(remote) if remote else False}
 
         if head == "setup":
             if v.exists():
@@ -420,7 +423,8 @@ def make_handler(app: App):
                 v.update_device(syncVersion=version)
                 app.sync_state["version"] = version
                 return {"ok": True}
-            sk = v.create(body.get("password", ""), acct)
+            # Linked to Jace: no Secret Key (your Jace sign-in guards the synced copy instead).
+            sk = v.create(body.get("password", ""), acct, use_secret_key=acct is None)
             app.schedule_sync(0.1)
             return {"secretKey": sk}
 
@@ -575,6 +579,14 @@ def make_handler(app: App):
             v.change_password(body.get("current", ""), body.get("new", ""))
             app.after_change()
             return {"ok": True}
+
+        if head == "secret-key" and method == "POST":
+            use = bool(body.get("use"))
+            if not use and not app.jace_account():
+                raise ApiError("Sign in with Jace first: without a Secret Key, your Jace account protects the synced copy.")
+            sk = v.set_secret_key(body.get("password", ""), use)
+            app.after_change()
+            return {"secretKey": sk}
 
         if head == "emergency-kit":
             if not v.verify_password(body.get("password", "")):

@@ -13,7 +13,7 @@
   const D = window.JP_DATA;
   const enc = new TextEncoder(), dec = new TextDecoder();
   const subtle = crypto.subtle;
-  const VERSION = "1.0.1";
+  const VERSION = "1.0.2";
   const FORMAT = "jace-passwords/1";
   const AAD_KEY = enc.encode("jace-passwords:key"), AAD_DATA = enc.encode("jace-passwords:data");
   const KDF = { name: "scrypt", n: 131072, r: 8, p: 1 };
@@ -111,6 +111,7 @@
   async function deriveKek(password, secretKey, salt, kdf) {
     if (kdf.name !== "scrypt") throw new ApiError("Unknown key derivation.");
     const k1 = await scrypt(enc.encode(password), salt, kdf.n, kdf.r, kdf.p, 32);
+    if (kdf.secretKey === false) return k1; // linked to Jace: master password only (crypto.py)
     const ikm = await subtle.importKey("raw", enc.encode(normalizeSecretKey(secretKey)), "HKDF", false, ["deriveBits"]);
     const k2 = new Uint8Array(await subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt, info: enc.encode("jace-passwords secret key v1") }, ikm, 256));
     return k1.map((b, i) => b ^ k2[i]);
@@ -147,10 +148,12 @@
     return { vaults: [{ id: newId(), name: "Personal", icon: "🔐", color: "#3ddc84", travelSafe: true, createdAt: t, updatedAt: t }],
       items: [], settings: { ...DEFAULT_SETTINGS }, generatorHistory: [], createdAt: t };
   }
-  async function wrap(password, secretKey, account) {
+  const usesSecretKey = (f) => (f?.kdf || {}).secretKey !== false;
+  async function wrap(password, secretKey, account, useSk = usesSecretKey(V.meta)) {
     const salt = rand(16);
-    const kek = await deriveKek(password, secretKey, salt, KDF);
-    V.meta = { format: FORMAT, account: account !== undefined ? account : V.meta.account ?? null, kdf: { ...KDF },
+    const kdf = useSk ? { ...KDF } : { ...KDF, secretKey: false };
+    const kek = await deriveKek(password, secretKey, salt, kdf);
+    V.meta = { format: FORMAT, account: account !== undefined ? account : V.meta.account ?? null, kdf,
       salt: b64e(salt), wrappedKey: await seal(kek, V.key, AAD_KEY), keyChangedAt: nowIso() };
   }
   async function fileDict() {
@@ -163,14 +166,15 @@
   async function unlock(password, secretKey, file) {
     const f = file || store.get("vault");
     if (!f || f.format !== FORMAT) throw new ApiError("This isn't a Jace Passwords vault.");
-    const sk = secretKey || device().secretKey;
-    if (!sk) throw new ApiError("Enter your Secret Key (it's on your Emergency Kit).");
+    const usesSk = usesSecretKey(f);
+    const sk = usesSk ? secretKey || device().secretKey : null;
+    if (usesSk && !sk) throw new ApiError("Enter your Secret Key (it's on your Emergency Kit).");
     const kek = await deriveKek(password, sk, b64d(f.salt), f.kdf);
     const key = await openSealed(kek, f.wrappedKey, AAD_KEY);
     V.data = JSON.parse(dec.decode(await openSealed(key, f.data, AAD_DATA)));
     V.key = key;
     V.meta = Object.fromEntries(Object.entries(f).filter(([k]) => k !== "data" && k !== "updatedAt"));
-    if (secretKey) updateDevice({ secretKey });
+    if (secretKey && usesSk) updateDevice({ secretKey });
     if (file) await save();
     touch();
   }
@@ -518,6 +522,8 @@
   // ---------- the API the app window calls (server.py's /api/*), answered in the page ----------
   async function state() {
     const st = { app: "Jace Passwords", version: VERSION, web: true, setup: exists(), locked: !V.data, hasSecretKey: !!device().secretKey,
+      usesSecretKey: exists() ? usesSecretKey(store.get("vault")) : null,
+      needsSecretKey: exists() && usesSecretKey(store.get("vault")) && !device().secretKey,
       jace: await me(), vaultAccount: store.get("vault")?.account || null, sync, signinError: signinError, settings: V.data ? settings() : null };
     return st;
   }
@@ -548,7 +554,7 @@
         if (arg === "remote") {
           if (!(await me())) throw new ApiError("Sign in with Jace first.");
           const [remote] = await pull();
-          return { exists: !!remote, account: remote?.account || null };
+          return { exists: !!remote, account: remote?.account || null, usesSecretKey: remote ? usesSecretKey(remote) : false };
         }
         break;
       case "setup": {
@@ -562,10 +568,11 @@
           return { ok: true };
         }
         if ((body.password || "").length < 10) throw new ApiError("Use at least 10 characters for your master password.");
-        const sk = newSecretKey();
+        const u0 = await me();
+        const sk = u0 ? null : newSecretKey(); // linked to Jace: no Secret Key
         V.key = rand(32); V.data = emptyData();
         const u = await me();
-        await wrap(body.password, sk, u ? { id: u.id, username: u.username, name: u.name, picture: u.picture } : null);
+        await wrap(body.password, sk, u ? { id: u.id, username: u.username, name: u.name, picture: u.picture } : null, !!sk);
         updateDevice({ secretKey: sk });
         await save(); scheduleSync(100);
         return { secretKey: sk };
@@ -660,7 +667,16 @@
       case "password": {
         if (!(await verifyPassword(body.current || ""))) throw new ApiError("Wrong master password or Secret Key.");
         if ((body.new || "").length < 10) throw new ApiError("Use at least 10 characters for your master password.");
-        await wrap(body.new, device().secretKey); await changed(); return { ok: true };
+        await wrap(body.new, device().secretKey || null); await changed(); return { ok: true };
+      }
+      case "secret-key": {
+        if (!(await verifyPassword(body.password || ""))) throw new ApiError("That master password is wrong.");
+        if (!body.use && !(await me())) throw new ApiError("Sign in with Jace first: without a Secret Key, your Jace account protects the synced copy.");
+        const sk = body.use ? device().secretKey || newSecretKey() : null;
+        await wrap(body.password, sk, undefined, !!body.use);
+        updateDevice({ secretKey: sk });
+        await changed();
+        return { secretKey: sk };
       }
       case "emergency-kit":
         if (!(await verifyPassword(body.password || ""))) throw new ApiError("That master password is wrong.");

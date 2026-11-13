@@ -171,7 +171,9 @@ async function renderOnboarding(app) {
       <div class="error" id="err"></div>
       <button class="btn primary block" style="margin-top:12px">Create vault</button>
       <button type="button" class="btn ghost block" data-a="ob-back" style="margin-top:6px">Back</button>
-      <p class="small muted" style="margin-top:14px">🔐 Your vault is encrypted with AES-256 using a key made from this password plus a Secret Key that stays on your devices${st.jace ? `, and synced to <b>@${h(st.jace.username)}</b>'s Jace account as unreadable ciphertext` : ""}.</p>
+      <p class="small muted" style="margin-top:14px">🔐 ${st.jace
+        ? `Your vault is encrypted with AES-256 using a key made from this password, and synced to <b>@${h(st.jace.username)}</b>'s Jace account as unreadable ciphertext. On a new device you just sign in with Jace and enter this password.`
+        : "Your vault is encrypted with AES-256 using a key made from this password plus a Secret Key that stays on your devices."}</p>
     </form></div>`;
     $("#pw1").addEventListener("input", async (e) => { $("#pw1m").innerHTML = meterHTML(await POST("strength", { password: e.target.value })); });
     $("#f-create").addEventListener("submit", async (e) => {
@@ -180,7 +182,11 @@ async function renderOnboarding(app) {
       if (a.length < 10) return ($("#err").textContent = "Use at least 10 characters.");
       if (a !== b) return ($("#err").textContent = "Those passwords don't match.");
       e.submitter.disabled = true; e.submitter.textContent = "Encrypting…";
-      try { const r = await POST("setup", { password: a }); ob.step = "kit"; ob.secretKey = r.secretKey; render(); }
+      try {
+        const r = await POST("setup", { password: a });
+        if (r.secretKey) { ob.step = "kit"; ob.secretKey = r.secretKey; render(); }
+        else { S.onboard = null; await refreshState(); toast("Your vault is ready 🎉 Unlock it anywhere with Jace + your master password"); }
+      }
       catch (x) { $("#err").textContent = x.message; e.submitter.disabled = false; e.submitter.textContent = "Create vault"; }
     });
     return;
@@ -188,9 +194,9 @@ async function renderOnboarding(app) {
   if (ob.step === "restore") {
     app.innerHTML = `<div class="center"><form class="card" id="f-restore">${LOGO}
       <h1>Unlock your vault</h1>
-      <p class="muted">Your vault is on your Jace account <b>@${h(st.jace?.username)}</b>. Enter your master password and the Secret Key from your Emergency Kit.</p>
+      <p class="muted">Your vault is on your Jace account <b>@${h(st.jace?.username)}</b>. Enter your master password${ob.remote?.usesSecretKey ? " and the Secret Key from your Emergency Kit" : ""}.</p>
       <label class="lbl">Master password</label><input class="input" type="password" id="pw" autofocus>
-      <label class="lbl">Secret Key</label><input class="input mono" id="sk" placeholder="J1-XXXXXX-XXXXX-XXXXX-XXXXX-XXXXX" autocomplete="off" spellcheck="false">
+      ${ob.remote?.usesSecretKey ? `<label class="lbl">Secret Key</label><input class="input mono" id="sk" placeholder="J1-XXXXXX-XXXXX-XXXXX-XXXXX-XXXXX" autocomplete="off" spellcheck="false">` : ""}
       <div class="error" id="err"></div>
       <button class="btn primary block" style="margin-top:12px">Unlock</button>
       <button type="button" class="btn ghost block" data-a="ob-back" style="margin-top:6px">Back</button>
@@ -198,7 +204,7 @@ async function renderOnboarding(app) {
     $("#f-restore").addEventListener("submit", async (e) => {
       e.preventDefault();
       e.submitter.disabled = true; e.submitter.textContent = "Unlocking…";
-      try { await POST("setup", { mode: "restore", password: $("#pw").value, secretKey: $("#sk").value }); S.onboard = null; await refreshState(); toast("Welcome back"); }
+      try { await POST("setup", { mode: "restore", password: $("#pw").value, secretKey: $("#sk")?.value || "" }); S.onboard = null; await refreshState(); toast("Welcome back"); }
       catch (x) { $("#err").textContent = x.message; e.submitter.disabled = false; e.submitter.textContent = "Unlock"; }
     });
     return;
@@ -263,7 +269,7 @@ function renderLocked(app) {
     </div>
     <label class="lbl">Master password</label>
     <input class="input" type="password" id="pw" autocomplete="current-password" autofocus>
-    ${st.hasSecretKey ? "" : `<label class="lbl">Secret Key</label><input class="input mono" id="sk" placeholder="J1-…" autocomplete="off" spellcheck="false">`}
+    ${!st.needsSecretKey ? "" : `<label class="lbl">Secret Key</label><input class="input mono" id="sk" placeholder="J1-…" autocomplete="off" spellcheck="false">`}
     <div class="error" id="err"></div>
     <button class="btn primary block" style="margin-top:10px">Unlock</button>
   </form></div>`;
@@ -749,7 +755,11 @@ async function renderSettings(el) {
   <div class="panel"><h3>Security</h3>
     <label class="lbl">Auto-lock after</label><select class="input" data-s="autoLockMinutes">${[[1, "1 minute"], [5, "5 minutes"], [10, "10 minutes"], [30, "30 minutes"], [60, "1 hour"], [240, "4 hours"], [0, "Never"]].map(([v, l]) => `<option value="${v}" ${+s.autoLockMinutes === v ? "selected" : ""}>${l}</option>`).join("")}</select>
     <label class="lbl">Clear copied items from clipboard after</label><select class="input" data-s="clipboardClearSeconds">${[[15, "15 seconds"], [30, "30 seconds"], [60, "1 minute"], [120, "2 minutes"], [0, "Never"]].map(([v, l]) => `<option value="${v}" ${+s.clipboardClearSeconds === v ? "selected" : ""}>${l}</option>`).join("")}</select>
-    <div class="row" style="margin-top:14px;flex-wrap:wrap"><button class="btn" data-a="change-pw">Change master password</button><button class="btn" data-a="show-kit">View Emergency Kit</button></div>
+    <div class="row" style="margin-top:14px;flex-wrap:wrap"><button class="btn" data-a="change-pw">Change master password</button>${st.usesSecretKey ? `<button class="btn" data-a="show-kit">View Emergency Kit</button>` : ""}</div>
+    <label class="lbl">Secret Key</label>
+    ${st.usesSecretKey
+      ? `<p class="muted small">New devices need your Secret Key as well as your master password.${st.jace ? " Since your vault is linked to Jace, you can stop using it: then signing in with Jace and your master password is enough." : ""}</p>${st.jace ? `<button class="btn" data-a="secret-key" data-use="0">Stop using a Secret Key</button>` : ""}`
+      : `<p class="muted small">No Secret Key: on a new device, sign in with Jace and enter your master password. Your Jace sign-in protects the synced copy. For a second secret only your devices know, add a Secret Key.</p><button class="btn" data-a="secret-key" data-use="1">Add a Secret Key</button>`}
   </div>
   <div class="panel"><h3>✈ Travel Mode</h3><p class="muted small">Crossing a border? Travel Mode hides every vault not marked “safe for travel” from this device and the extension until you turn it off.</p>
     <label class="check"><input type="checkbox" data-s="travelMode" ${s.travelMode ? "checked" : ""}> Travel Mode is on</label></div>
@@ -914,6 +924,20 @@ const ACTIONS = {
         catch (x) { $("#err", root).textContent = x.message; }
       });
     });
+  },
+  "secret-key"(el) {
+    const use = el.dataset.use === "1";
+    passwordPrompt(use ? "Add a Secret Key" : "Stop using a Secret Key",
+      use ? "You'll get a Secret Key to save. New devices will need it along with your master password."
+          : "New devices will only need your Jace sign-in and master password. Your Secret Key stops working.",
+      async (pw) => {
+        const r = await POST("secret-key", { password: pw, use });
+        closeModal(); await reload();
+        if (r.secretKey) { modal(`<div class="modal"><div class="mh"><h3>Save your Secret Key</h3><button class="btn ghost icon" data-a="close">✕</button></div><div class="mb">
+          <div class="kit"><label class="lbl">Secret Key</label><div class="sk mono">${h(r.secretKey)}</div></div>
+          <div class="row"><button class="btn" data-a="kit-copy" data-sk="${h(r.secretKey)}">Copy Secret Key</button><button class="btn" data-a="print">Print</button></div></div></div>`); }
+        else toast("Secret Key removed");
+      });
   },
   "show-kit"() {
     passwordPrompt("Emergency Kit", "Enter your master password to see your Secret Key.", async (pw) => {
