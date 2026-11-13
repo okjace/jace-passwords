@@ -4,7 +4,7 @@
 
 - **The desktop app updates itself:** it checks GitHub for new releases, downloads the right file in the background, checks it against GitHub's SHA-256, and installs it when you quit or when you choose **Restart to update** in the tray. It installs in the same place, with the same shortcuts and settings. Install 1.3.1 by hand once, and it handles every update after that.
 - **The extension updates itself in Jace Browser and Firefox,** from this release's signed copy on. Install `jace-passwords-1.3.1-signed.xpi` once, and new versions arrive automatically.
-- **Chrome, Edge and Brave:** a copy loaded with "Load unpacked" can't update itself, so its popup now says when a new version is out. Releases can also publish to the Chrome Web Store automatically, once the store is set up (see `packaging/publish_chrome.py`).
+- **Chrome, Edge and Brave:** a copy loaded with "Load unpacked" can't update itself, so its popup now says when a new version is out.
 - **Every release now signs the Firefox extension automatically.**
 
 ## 1.3.0
