@@ -86,6 +86,19 @@ class Vercel:
         names = sorted((x["name"] for x in doms if not x.get("redirect")), key=lambda n: (not n.endswith(".vercel.app"), len(n)))
         return f"https://{names[0]}" if names else ""
 
+    def ensure_secret_env(self, key: str):
+        """Creates a random secret env var if the project doesn't have it yet. Never replaces one."""
+        try:
+            envs = self.call("GET", f"/v9/projects/{PROJECT}/env").get("envs", [])
+        except RuntimeError:
+            return  # the project doesn't exist yet (first deploy); the next deploy adds it
+        if any(e.get("key") == key for e in envs):
+            return
+        import secrets
+        self.call("POST", f"/v10/projects/{PROJECT}/env",
+                  [{"key": key, "value": secrets.token_hex(32), "type": "sensitive", "target": ["production", "preview"]}])
+        print(f"Created {key} on Vercel")
+
     def set_env(self, values: dict):
         body = [{"key": k, "value": v, "type": "encrypted", "target": ["production", "preview"]} for k, v in values.items()]
         self.call("POST", f"/v10/projects/{PROJECT}/env", body, query={"upsert": "true"})
@@ -102,6 +115,7 @@ def main() -> int:
         token = getpass.getpass("Vercel token (hidden while you type): ").strip()
     v = Vercel(token, os.environ.get("VERCEL_TEAM_ID"))
     v.pick_team()
+    v.ensure_secret_env("JP_VAULT_KEY_SECRET")  # unlocking vaults with Jace (webapp/api/jace.py)
     d = v.deploy(build())
     print(f"Live: {v.production_url() or 'https://' + d['url']}")
     return 0

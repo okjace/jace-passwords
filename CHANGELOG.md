@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.3
+
+- **Skip the master password:** when you're signed in with Jace, you can choose **Skip: unlock with my Jace account** instead of making a master password. Your vault then unlocks whenever you're signed in to Jace, with **Unlock with Jace** on the lock screen, and on the web and new devices too.
+  - ⚠ This mode is encrypted, but **not end-to-end**: the Jace Passwords server keeps the key for your account, so whoever controls it, or gets into your Jace account, could open the vault.
+  - You can switch any time in **Settings → Security**: **Add a master password** makes it end-to-end encrypted, and **Unlock with Jace instead** goes the other way.
+- **Browser extension:** for a vault that unlocks with Jace, just press Unlock and leave the password empty.
+
 ## 1.0.2
 
 - **No Secret Key with a Jace account:** a vault created while you're signed in with Jace no longer gets a Secret Key. On a new device, or on the web, you sign in with Jace and enter your master password. Your vault stays end-to-end encrypted: your master password never leaves your device, and only your Jace sign-in can download the synced copy.

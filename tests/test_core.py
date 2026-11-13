@@ -113,3 +113,71 @@ class NoSecretKey(unittest.TestCase):
         Vault(Path(tempfile.mkdtemp())).unlock("correct horse battery", sk2, file=f)
         with self.assertRaises(VaultError):
             v.set_secret_key("wrong password!!", False)
+
+
+class UnlockWithJace(unittest.TestCase):
+    """Vaults without a master password: the key comes from the Jace Passwords server."""
+    KEY = b"k" * 32
+
+    def test_create_unlock_and_switch(self):
+        d = Path(tempfile.mkdtemp())
+        v = Vault(d)
+        self.assertIsNone(v.create(None, {"id": "u1", "username": "jace"}, jace_key=self.KEY))
+        self.assertEqual(v.key_mode(), "jace")
+        v.create_item({"type": "note", "title": "No password", "fields": {"body": "x"}})
+        f = json.loads((d / "vault.json").read_text())
+        self.assertEqual(f["kdf"], {"name": "jace", "sub": "u1"})
+        self.assertNotIn("No password", json.dumps(f))  # still encrypted at rest
+        other = Vault(Path(tempfile.mkdtemp()))
+        other.unlock(None, file=f, jace_key=self.KEY)
+        self.assertEqual([i["title"] for i in other.visible_items()], ["No password"])
+        with self.assertRaises(crypto.CryptoError):
+            Vault(Path(tempfile.mkdtemp())).unlock(None, file=f, jace_key=b"x" * 32)  # another account's key
+        with self.assertRaises(crypto.CryptoError):
+            Vault(Path(tempfile.mkdtemp())).unlock("any password", file=f)  # no key: can't open
+        # add a master password -> end-to-end encrypted, no Secret Key
+        v.set_key_mode("password", password="now with a password")
+        self.assertEqual(v.key_mode(), "password")
+        f = json.loads((d / "vault.json").read_text())
+        Vault(Path(tempfile.mkdtemp())).unlock("now with a password", file=f)
+        # and back to Jace (needs the current password)
+        with self.assertRaises(VaultError):
+            v.set_key_mode("jace", current="wrong password!!", jace_key=self.KEY)
+        v.set_key_mode("jace", current="now with a password", jace_key=self.KEY)
+        self.assertEqual(v.key_mode(), "jace")
+
+    def test_needs_an_account(self):
+        with self.assertRaises(VaultError):
+            Vault(Path(tempfile.mkdtemp())).create(None, None, jace_key=self.KEY)
+
+
+class VaultKeyService(unittest.TestCase):
+    def test_vault_key_route(self):
+        import importlib, sys, threading, urllib.error, urllib.request
+        from http.server import HTTPServer
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "webapp" / "api"))
+        mod = importlib.import_module("jace")
+        mod.VAULT_KEY_SECRET = "s" * 64
+        calls = []
+        def fake(method, path, token=None, **kw):
+            calls.append(path)
+            if token != "good":
+                return 401, {}
+            return (200, {"collections": []}) if path == "/api/oauth/sync" else (200, {"sub": "u1"})
+        mod._jace = fake
+        srv = HTTPServer(("127.0.0.1", 0), mod.handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{srv.server_port}/api/jace/vault-key"
+        def get(headers):
+            try:
+                with urllib.request.urlopen(urllib.request.Request(base, headers=headers)) as r:
+                    return r.status, json.loads(r.read())
+            except urllib.error.HTTPError as e:
+                return e.code, {}
+        self.assertEqual(get({"Authorization": "Bearer good"})[0], 403)  # needs the header
+        self.assertEqual(get({"X-Jace-Passwords": "1", "Authorization": "Bearer bad"})[0], 401)
+        st, body = get({"X-Jace-Passwords": "1", "Authorization": "Bearer good"})
+        self.assertEqual((st, body["sub"]), (200, "u1"))
+        st2, body2 = get({"X-Jace-Passwords": "1", "Authorization": "Bearer good"})
+        self.assertEqual(body["key"], body2["key"])  # stable per account
+        srv.shutdown()

@@ -170,11 +170,19 @@ async function renderOnboarding(app) {
       <input class="input" type="password" id="pw2" autocomplete="new-password">
       <div class="error" id="err"></div>
       <button class="btn primary block" style="margin-top:12px">Create vault</button>
+      ${st.jace ? `<div class="or">or</div>
+      <button type="button" class="btn block" id="skip-pw">Skip: unlock with my Jace account</button>
+      <p class="small muted" style="margin-top:6px">No password to remember: you unlock by being signed in to Jace. ⚠ Not end-to-end encrypted: whoever controls the Jace Passwords server, or gets into your Jace account, could open your vault. You can add a master password later in Settings.</p>` : ""}
       <button type="button" class="btn ghost block" data-a="ob-back" style="margin-top:6px">Back</button>
       <p class="small muted" style="margin-top:14px">🔐 ${st.jace
         ? `Your vault is encrypted with AES-256 using a key made from this password, and synced to <b>@${h(st.jace.username)}</b>'s Jace account as unreadable ciphertext. On a new device you just sign in with Jace and enter this password.`
         : "Your vault is encrypted with AES-256 using a key made from this password plus a Secret Key that stays on your devices."}</p>
     </form></div>`;
+    $("#skip-pw")?.addEventListener("click", async (e) => {
+      e.target.disabled = true; e.target.textContent = "Creating…";
+      try { await POST("setup", { skipPassword: true }); S.onboard = null; await refreshState(); toast("Your vault is ready 🎉 It unlocks with your Jace account"); }
+      catch (x) { $("#err").textContent = x.message; e.target.disabled = false; e.target.textContent = "Skip: unlock with my Jace account"; }
+    });
     $("#pw1").addEventListener("input", async (e) => { $("#pw1m").innerHTML = meterHTML(await POST("strength", { password: e.target.value })); });
     $("#f-create").addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -194,8 +202,8 @@ async function renderOnboarding(app) {
   if (ob.step === "restore") {
     app.innerHTML = `<div class="center"><form class="card" id="f-restore">${LOGO}
       <h1>Unlock your vault</h1>
-      <p class="muted">Your vault is on your Jace account <b>@${h(st.jace?.username)}</b>. Enter your master password${ob.remote?.usesSecretKey ? " and the Secret Key from your Emergency Kit" : ""}.</p>
-      <label class="lbl">Master password</label><input class="input" type="password" id="pw" autofocus>
+      <p class="muted">Your vault is on your Jace account <b>@${h(st.jace?.username)}</b>. ${ob.remote?.keyMode === "jace" ? "It unlocks with your Jace account." : `Enter your master password${ob.remote?.usesSecretKey ? " and the Secret Key from your Emergency Kit" : ""}.`}</p>
+      ${ob.remote?.keyMode === "jace" ? "" : `<label class="lbl">Master password</label><input class="input" type="password" id="pw" autofocus>`}
       ${ob.remote?.usesSecretKey ? `<label class="lbl">Secret Key</label><input class="input mono" id="sk" placeholder="J1-XXXXXX-XXXXX-XXXXX-XXXXX-XXXXX" autocomplete="off" spellcheck="false">` : ""}
       <div class="error" id="err"></div>
       <button class="btn primary block" style="margin-top:12px">Unlock</button>
@@ -204,7 +212,7 @@ async function renderOnboarding(app) {
     $("#f-restore").addEventListener("submit", async (e) => {
       e.preventDefault();
       e.submitter.disabled = true; e.submitter.textContent = "Unlocking…";
-      try { await POST("setup", { mode: "restore", password: $("#pw").value, secretKey: $("#sk")?.value || "" }); S.onboard = null; await refreshState(); toast("Welcome back"); }
+      try { await POST("setup", { mode: "restore", password: $("#pw")?.value || "", secretKey: $("#sk")?.value || "" }); S.onboard = null; await refreshState(); toast("Welcome back"); }
       catch (x) { $("#err").textContent = x.message; e.submitter.disabled = false; e.submitter.textContent = "Unlock"; }
     });
     return;
@@ -267,17 +275,17 @@ function renderLocked(app) {
       <h1 style="margin-top:12px">${who ? `Welcome back, ${h(who.name || who.username)}` : "Unlock Jace Passwords"}</h1>
       ${who ? `<p class="muted">@${h(who.username)}</p>` : ""}
     </div>
-    <label class="lbl">Master password</label>
-    <input class="input" type="password" id="pw" autocomplete="current-password" autofocus>
+    ${st.keyMode === "jace" ? `<p class="muted" style="text-align:center">This vault unlocks with your Jace account.</p>` : `<label class="lbl">Master password</label>
+    <input class="input" type="password" id="pw" autocomplete="current-password" autofocus>`}
     ${!st.needsSecretKey ? "" : `<label class="lbl">Secret Key</label><input class="input mono" id="sk" placeholder="J1-…" autocomplete="off" spellcheck="false">`}
     <div class="error" id="err"></div>
-    <button class="btn primary block" style="margin-top:10px">Unlock</button>
+    <button class="btn primary block" style="margin-top:10px" ${st.keyMode === "jace" ? "autofocus" : ""}>${st.keyMode === "jace" ? "Unlock with Jace" : "Unlock"}</button>
   </form></div>`;
   $("#f-unlock").addEventListener("submit", async (e) => {
     e.preventDefault();
     e.submitter.disabled = true; e.submitter.textContent = "Unlocking…";
-    try { await POST("unlock", { password: $("#pw").value, secretKey: $("#sk")?.value }); await refreshState(); }
-    catch (x) { $("#err").textContent = x.message; e.submitter.disabled = false; e.submitter.textContent = "Unlock"; $("#pw").select(); }
+    try { await POST("unlock", { password: $("#pw")?.value || "", secretKey: $("#sk")?.value }); await refreshState(); }
+    catch (x) { $("#err").textContent = x.message; e.submitter.disabled = false; e.submitter.textContent = st.keyMode === "jace" ? "Unlock with Jace" : "Unlock"; $("#pw")?.select(); }
   });
 }
 
@@ -755,11 +763,14 @@ async function renderSettings(el) {
   <div class="panel"><h3>Security</h3>
     <label class="lbl">Auto-lock after</label><select class="input" data-s="autoLockMinutes">${[[1, "1 minute"], [5, "5 minutes"], [10, "10 minutes"], [30, "30 minutes"], [60, "1 hour"], [240, "4 hours"], [0, "Never"]].map(([v, l]) => `<option value="${v}" ${+s.autoLockMinutes === v ? "selected" : ""}>${l}</option>`).join("")}</select>
     <label class="lbl">Clear copied items from clipboard after</label><select class="input" data-s="clipboardClearSeconds">${[[15, "15 seconds"], [30, "30 seconds"], [60, "1 minute"], [120, "2 minutes"], [0, "Never"]].map(([v, l]) => `<option value="${v}" ${+s.clipboardClearSeconds === v ? "selected" : ""}>${l}</option>`).join("")}</select>
-    <div class="row" style="margin-top:14px;flex-wrap:wrap"><button class="btn" data-a="change-pw">Change master password</button>${st.usesSecretKey ? `<button class="btn" data-a="show-kit">View Emergency Kit</button>` : ""}</div>
+    ${st.keyMode === "jace" ? `<label class="lbl">Unlock</label>
+    <p class="muted small">No master password: this vault unlocks with your Jace account. ⚠ It's encrypted, but not end-to-end: the Jace Passwords server holds the key for your account. Add a master password to make it end-to-end encrypted.</p>
+    <button class="btn primary" data-a="change-pw">Add a master password</button>` : `
+    <div class="row" style="margin-top:14px;flex-wrap:wrap"><button class="btn" data-a="change-pw">Change master password</button>${st.usesSecretKey ? `<button class="btn" data-a="show-kit">View Emergency Kit</button>` : ""}${st.jace ? `<button class="btn" data-a="use-jace-unlock">Unlock with Jace instead</button>` : ""}</div>
     <label class="lbl">Secret Key</label>
     ${st.usesSecretKey
       ? `<p class="muted small">New devices need your Secret Key as well as your master password.${st.jace ? " Since your vault is linked to Jace, you can stop using it: then signing in with Jace and your master password is enough." : ""}</p>${st.jace ? `<button class="btn" data-a="secret-key" data-use="0">Stop using a Secret Key</button>` : ""}`
-      : `<p class="muted small">No Secret Key: on a new device, sign in with Jace and enter your master password. Your Jace sign-in protects the synced copy. For a second secret only your devices know, add a Secret Key.</p><button class="btn" data-a="secret-key" data-use="1">Add a Secret Key</button>`}
+      : `<p class="muted small">No Secret Key: on a new device, sign in with Jace and enter your master password. Your Jace sign-in protects the synced copy. For a second secret only your devices know, add a Secret Key.</p><button class="btn" data-a="secret-key" data-use="1">Add a Secret Key</button>`}`}
   </div>
   <div class="panel"><h3>✈ Travel Mode</h3><p class="muted small">Crossing a border? Travel Mode hides every vault not marked “safe for travel” from this device and the extension until you turn it off.</p>
     <label class="check"><input type="checkbox" data-s="travelMode" ${s.travelMode ? "checked" : ""}> Travel Mode is on</label></div>
@@ -778,7 +789,7 @@ async function renderSettings(el) {
     <p class="muted small">Import a CSV from Chrome, Firefox, Safari, Edge, 1Password, Bitwarden, Proton Pass, LastPass or Dashlane.</p>
     <label class="btn">📥 Import CSV<input type="file" accept=".csv,text/csv" id="imp" hidden></label>
     <button class="btn" data-a="export" data-f="json">📦 Encrypted backup</button><button class="btn" data-a="export" data-f="csv">📄 Export CSV (unencrypted)</button></div>
-  <p class="small muted">Jace Passwords ${h(st.version)} · AES-256-GCM · scrypt + Secret Key</p>`;
+  <p class="small muted">Jace Passwords ${h(st.version)} · AES-256-GCM · ${st.keyMode === "jace" ? "unlocked with Jace" : st.usesSecretKey ? "scrypt + Secret Key" : "scrypt"}</p>`;
   $$("[data-s]", el).forEach((c) => c.addEventListener("change", async () => {
     const v = c.type === "checkbox" ? c.checked : c.tagName === "SELECT" ? +c.value : c.value.trim();
     await api("PUT", "settings", { [c.dataset.s]: v });
@@ -793,6 +804,7 @@ async function renderSettings(el) {
 }
 
 function passwordPrompt(title, desc, cb) {
+  if (S.server?.keyMode === "jace") return cb("").catch((x) => toast(x.message)); // no master password to ask for
   modal(`<form class="modal" style="max-width:420px" id="pp"><div class="mh"><h3>${h(title)}</h3><button type="button" class="btn ghost icon" data-a="close">✕</button></div>
     <div class="mb"><p class="muted">${h(desc)}</p><input class="input" type="password" id="pp-pw" placeholder="Master password" autocomplete="current-password"><div class="error" id="err"></div></div>
     <div class="mf"><button type="button" class="btn" data-a="close">Cancel</button><button class="btn primary">Continue</button></div></form>`, (root) => {
@@ -913,16 +925,24 @@ const ACTIONS = {
   async unpair(el) { await api("DELETE", "devices/" + el.dataset.id); render(); },
   async theme(el) { localStorageSet("theme", el.dataset.t); await api("PUT", "settings", { theme: el.dataset.t }); await reload(); },
   "change-pw"() {
-    modal(`<form class="modal" style="max-width:440px" id="cp"><div class="mh"><h3>Change master password</h3><button type="button" class="btn ghost icon" data-a="close">✕</button></div>
-      <div class="mb">${inp("cp-cur", "Current master password", "", 'type="password" autocomplete="current-password"')}${inp("cp-new", "New master password", "", 'type="password" autocomplete="new-password"')}<div id="cp-m"></div>${inp("cp-new2", "Confirm new password", "", 'type="password" autocomplete="new-password"')}<div class="error" id="err"></div></div>
+    const adding = S.server?.keyMode === "jace";
+    modal(`<form class="modal" style="max-width:440px" id="cp"><div class="mh"><h3>${adding ? "Add a master password" : "Change master password"}</h3><button type="button" class="btn ghost icon" data-a="close">✕</button></div>
+      <div class="mb">${adding ? `<p class="muted small">Your vault becomes end-to-end encrypted: only this password opens it, and nobody can reset it for you.</p>` : inp("cp-cur", "Current master password", "", 'type="password" autocomplete="current-password"')}${inp("cp-new", "New master password", "", 'type="password" autocomplete="new-password"')}<div id="cp-m"></div>${inp("cp-new2", "Confirm new password", "", 'type="password" autocomplete="new-password"')}<div class="error" id="err"></div></div>
       <div class="mf"><button type="button" class="btn" data-a="close">Cancel</button><button class="btn primary">Change password</button></div></form>`, (root) => {
       $("#cp-new", root).addEventListener("input", async (e) => ($("#cp-m", root).innerHTML = meterHTML(await POST("strength", { password: e.target.value }))));
       $("#cp", root).addEventListener("submit", async (e) => {
         e.preventDefault();
         if ($("#cp-new", root).value !== $("#cp-new2", root).value) return ($("#err", root).textContent = "The new passwords don't match.");
-        try { await POST("password", { current: $("#cp-cur", root).value, new: $("#cp-new", root).value }); closeModal(); toast("Master password changed"); }
+        try { await POST("password", { current: $("#cp-cur", root)?.value || "", new: $("#cp-new", root).value }); closeModal(); await reload(); toast(adding ? "Master password added: your vault is end-to-end encrypted" : "Master password changed"); }
         catch (x) { $("#err", root).textContent = x.message; }
       });
+    });
+  },
+  "use-jace-unlock"() {
+    if (!confirm("Unlock with your Jace account instead of a master password?\n\nYour vault stays encrypted, but no longer end-to-end: the Jace Passwords server will hold the key for your account, so whoever controls it, or gets into your Jace account, could open your vault.")) return;
+    passwordPrompt("Unlock with Jace instead", "Enter your current master password to switch.", async (pw) => {
+      await POST("key-mode", { mode: "jace", current: pw });
+      closeModal(); await reload(); toast("Your vault now unlocks with your Jace account");
     });
   },
   "secret-key"(el) {

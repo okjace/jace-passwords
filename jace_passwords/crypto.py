@@ -54,7 +54,14 @@ def normalize_secret_key(sk: str) -> str:
     return raw
 
 
-def derive_kek(password: str, secret_key: str | None, salt: bytes, kdf: dict) -> bytes:
+def derive_kek(password: str | None, secret_key: str | None, salt: bytes, kdf: dict, jace_key: bytes | None = None) -> bytes:
+    if kdf.get("name") == "jace":
+        # No master password: unlocked with your Jace account. jace_key comes from the Jace Passwords
+        # server (webapp/api/jace.py) once you're signed in. NOT end-to-end encrypted.
+        if not jace_key:
+            raise CryptoError("Sign in with Jace to unlock this vault.")
+        return HKDF(algorithm=hashes.SHA256(), length=32, salt=salt,
+                    info=b"jace-passwords jace unlock v1").derive(jace_key)
     if kdf.get("name") != "scrypt":
         raise CryptoError("Unknown key derivation.")
     n, r, p = int(kdf["n"]), int(kdf["r"]), int(kdf["p"])

@@ -17,11 +17,13 @@ import socket
 import threading
 import time
 import traceback
+import urllib.error
 import urllib.parse
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import APP_NAME, APP_VERSION, CLIENT_ID, HOST, PORT, crypto, jaceos, generator, importers, jace, passkeys, security, totp, write_private
+from . import APP_NAME, APP_VERSION, CLIENT_ID, HOST, PORT, WEB_URL, crypto, jaceos, net, generator, importers, jace, passkeys, security, totp, write_private
 from .vault import ITEM_TYPES, Locked, Vault, VaultError, new_id, now_iso
 
 WEB = Path(__file__).parent / "web"
@@ -83,6 +85,42 @@ class App:
             self.vault.set_account(jace.public_user(acct["user"]))
             self.schedule_sync(0.1)
         return True
+
+    def jace_key(self) -> bytes:
+        """The key for a vault unlocked with Jace (no master password), from the Jace Passwords site."""
+        acct = self.jace_account()
+        if not acct:
+            raise ApiError("Sign in with Jace to unlock this vault.")
+        req = urllib.request.Request(f"{WEB_URL}/api/jace/vault-key", headers={
+            "Authorization": f"Bearer {acct['access_token']}", "X-Jace-Passwords": "1", "Accept": "application/json",
+            "User-Agent": f"JacePasswords/{APP_VERSION}"})
+        try:
+            with net.urlopen(req, timeout=20) as r:
+                body = json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            try:
+                msg = json.loads(e.read()).get("error_description")
+            except ValueError:
+                msg = None
+            raise ApiError(msg or f"Couldn't get your vault key from Jace Passwords ({e.code}).")
+        except (urllib.error.URLError, OSError) as e:
+            raise ApiError("Couldn't reach Jace Passwords to unlock with Jace. Check your internet connection.") from e
+        mine = str(jace.public_user(acct["user"])["id"])
+        if body.get("sub") != mine:
+            raise ApiError("That key is for a different Jace account.")
+        return crypto.b64d(body["key"])
+
+    def unlock_vault(self, password=None, secret_key=None):
+        v = self.vault
+        if v.key_mode() == "jace":
+            owner = (v.read_file().get("kdf") or {}).get("sub")
+            acct = self.public_account()
+            if acct and owner and acct["id"] != owner:
+                raise ApiError("This vault belongs to another Jace account. Sign in with that one.")
+            v.unlock(None, jace_key=self.jace_key())
+        else:
+            v.unlock(password or "", secret_key or None)
+        self.schedule_sync(0.1)
 
     def auto_sign_in(self):
         """At startup: on Jace OS, sign in silently if this computer is signed in to Jace."""
@@ -151,6 +189,7 @@ class App:
             "locked": not v.unlocked,
             "hasSecretKey": bool(v.device().get("secretKey")),
             "usesSecretKey": v.uses_secret_key() if v.exists() else None,
+            "keyMode": v.key_mode() if v.exists() else None,
             "needsSecretKey": bool(v.exists() and v.uses_secret_key() and not v.device().get("secretKey")),
             "jace": self.public_account(),
             "vaultAccount": acct,
@@ -406,7 +445,8 @@ def make_handler(app: App):
                     raise ApiError("Sign in with Jace first.")
                 remote, version = jace.pull(acct["access_token"])
                 return {"exists": bool(remote), "account": (remote or {}).get("account"),
-                        "usesSecretKey": Vault.file_uses_secret_key(remote) if remote else False}
+                        "usesSecretKey": Vault.file_uses_secret_key(remote) if remote else False,
+                        "keyMode": Vault.file_key_mode(remote) if remote else None}
 
         if head == "setup":
             if v.exists():
@@ -419,18 +459,26 @@ def make_handler(app: App):
                 remote, version = jace.pull(a["access_token"])
                 if not remote:
                     raise ApiError("There's no vault on your Jace account yet.")
-                v.unlock(body.get("password", ""), body.get("secretKey", ""), file=remote)
+                if Vault.file_key_mode(remote) == "jace":
+                    v.unlock(None, file=remote, jace_key=app.jace_key())
+                else:
+                    v.unlock(body.get("password", ""), body.get("secretKey", ""), file=remote)
                 v.update_device(syncVersion=version)
                 app.sync_state["version"] = version
                 return {"ok": True}
             # Linked to Jace: no Secret Key (your Jace sign-in guards the synced copy instead).
+            if body.get("skipPassword"):  # no master password: unlocked with the Jace account
+                if not acct:
+                    raise ApiError("Sign in with Jace first.")
+                v.create(None, acct, jace_key=app.jace_key())
+                app.schedule_sync(0.1)
+                return {"secretKey": None}
             sk = v.create(body.get("password", ""), acct, use_secret_key=acct is None)
             app.schedule_sync(0.1)
             return {"secretKey": sk}
 
         if head == "unlock":
-            v.unlock(body.get("password", ""), body.get("secretKey") or None)
-            app.schedule_sync(0.1)
+            app.unlock_vault(body.get("password"), body.get("secretKey"))
             return {"ok": True}
 
         if head == "ping":
@@ -575,8 +623,18 @@ def make_handler(app: App):
             return {"filename": "jace-passwords-backup.json", "mime": "application/json",
                     "content": json.dumps(v.file_dict(), indent=1)}
 
+        if head == "key-mode" and method == "POST":  # master password <-> unlock with Jace
+            mode = body.get("mode")
+            v.set_key_mode(mode, password=body.get("password"), current=body.get("current"),
+                           jace_key=app.jace_key() if mode == "jace" else None)
+            app.after_change()
+            return {"ok": True}
+
         if head == "password":
-            v.change_password(body.get("current", ""), body.get("new", ""))
+            if v.key_mode() == "jace":
+                v.set_key_mode("password", password=body.get("new", ""))
+            else:
+                v.change_password(body.get("current", ""), body.get("new", ""))
             app.after_change()
             return {"ok": True}
 
@@ -634,8 +692,7 @@ def make_handler(app: App):
             return {"locked": not v.unlocked, "setup": v.exists(), "account": app.public_account(),
                     "version": APP_VERSION}
         if route == "unlock" and method == "POST":
-            v.unlock(body.get("password", ""))
-            app.schedule_sync(0.1)
+            app.unlock_vault(body.get("password"))
             return {"ok": True}
         if route == "lock" and method == "POST":
             v.lock()

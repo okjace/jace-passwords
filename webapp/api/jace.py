@@ -29,6 +29,9 @@ from http.server import BaseHTTPRequestHandler
 JACE_URL = os.environ.get("JACE_URL", "https://jaceo.vercel.app").rstrip("/")
 CLIENT_ID = os.environ.get("JACE_WEB_CLIENT_ID", "")
 CLIENT_SECRET = os.environ.get("JACE_WEB_CLIENT_SECRET", "")
+# Unlocking with Jace (vaults without a master password): each account's vault key comes from this
+# secret. Made once by packaging/deploy_vercel.py and never changed (changing it locks those vaults).
+VAULT_KEY_SECRET = os.environ.get("JP_VAULT_KEY_SECRET", "")
 SITE_URL = os.environ.get("SITE_URL", "").rstrip("/")
 REDIRECT = f"{SITE_URL}/api/jace/callback"
 COLLECTION = "pw-vault"
@@ -179,6 +182,8 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
             return self._send(200, {"user": {"id": str(u.get("sub") or u.get("id") or ""),
                                              "username": u.get("preferred_username") or u.get("username") or "",
                                              "name": u.get("name") or "", "picture": u.get("picture") or ""}})
+        if route == "vault-key":
+            return self._vault_key()
         if route == "sync":
             token = self._token()
             if not token:
@@ -186,6 +191,28 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
             status, r = _jace("GET", f"/api/oauth/sync/{COLLECTION}", token=token)
             return self._send(status, r)
         self._send(404, {"error": "not_found"})
+
+    def _vault_key(self):
+        """The key that unlocks a vault without a master password, for the signed-in Jace account.
+        The web app sends its cookie; the desktop app sends its own Jace token (Bearer). Either way the
+        token must be able to use Jace sync (official Jace apps only), not just any app's sign-in."""
+        if not VAULT_KEY_SECRET:
+            return self._send(503, {"error": "not_configured", "error_description": "Unlocking with Jace isn't set up yet."})
+        if self.headers.get("X-Jace-Passwords") != "1":
+            return self._send(403, {"error": "forbidden"})
+        auth = self.headers.get("Authorization", "")
+        token = auth[7:].strip() if auth.startswith("Bearer ") else self._token()
+        if not token:
+            return self._send(401, {"error": "signed_out", "error_description": "Sign in with Jace first."})
+        status, _ = _jace("GET", "/api/oauth/sync", token=token)
+        if status != 200:
+            return self._send(401, {"error": "invalid_token", "error_description": "Sign in with Jace again."})
+        status, u = _jace("GET", "/api/oauth/userinfo", token=token)
+        sub = str(u.get("sub") or "") if status == 200 else ""
+        if not sub:
+            return self._send(401, {"error": "invalid_token", "error_description": "Sign in with Jace again."})
+        key = hmac.new(VAULT_KEY_SECRET.encode(), f"jace-passwords vault key v1:{sub}".encode(), hashlib.sha256).digest()
+        return self._send(200, {"sub": sub, "key": base64.b64encode(key).decode()})
 
     def do_PUT(self):  # noqa: N802
         route, _ = self._route()

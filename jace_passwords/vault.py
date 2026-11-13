@@ -122,34 +122,54 @@ class Vault:
         return s
 
     # ---------- create / unlock / lock ----------
-    def create(self, password: str, account: dict | None, use_secret_key: bool = True) -> str | None:
-        """Makes a new vault. Returns its Secret Key, or None for a vault linked to Jace (no Secret Key)."""
-        if len(password) < 10:
+    def create(self, password: str | None, account: dict | None, use_secret_key: bool = True,
+               jace_key: bytes | None = None) -> str | None:
+        """Makes a new vault. Returns its Secret Key, or None for a vault linked to Jace (no Secret Key).
+        password=None: no master password, unlocked with the Jace account (jace_key)."""
+        if password is None:
+            if not (account and jace_key):
+                raise VaultError("Sign in with Jace to use your Jace account instead of a master password.")
+            use_secret_key = False
+        elif len(password) < 10:
             raise VaultError("Use at least 10 characters for your master password.")
         with self.lock_:
             secret_key = crypto.new_secret_key() if use_secret_key else None
             self._key, self._data = os.urandom(32), empty_data()
-            self._wrap(password, secret_key, account, use_secret_key=use_secret_key)
+            self._wrap(password, secret_key, account, use_secret_key=use_secret_key, jace_key=jace_key)
             self.update_device(secretKey=secret_key)
             self.save()
             return secret_key
 
     @staticmethod
     def file_uses_secret_key(f: dict) -> bool:
-        return (f.get("kdf") or {}).get("secretKey") is not False
+        kdf = f.get("kdf") or {}
+        return kdf.get("name") != "jace" and kdf.get("secretKey") is not False
+
+    @staticmethod
+    def file_key_mode(f: dict) -> str:
+        """"password" (master password, maybe + Secret Key) or "jace" (unlocked with the Jace account)."""
+        return "jace" if (f.get("kdf") or {}).get("name") == "jace" else "password"
+
+    def key_mode(self) -> str:
+        meta = self._file_meta or (self.read_file() if self.exists() else {})
+        return self.file_key_mode(meta)
 
     def uses_secret_key(self) -> bool:
         meta = self._file_meta or (self.read_file() if self.exists() else {})
         return self.file_uses_secret_key(meta)
 
-    def _wrap(self, password, secret_key, account=None, use_secret_key: bool | None = None):
+    def _wrap(self, password, secret_key, account=None, use_secret_key: bool | None = None, jace_key: bytes | None = None):
         if use_secret_key is None:
             use_secret_key = self.file_uses_secret_key(self._file_meta)
         salt = os.urandom(16)
-        kdf = dict(crypto.DEFAULT_KDF)
-        if not use_secret_key:
-            kdf["secretKey"] = False
-        kek = crypto.derive_kek(password, secret_key, salt, kdf)
+        acct = account if account is not None else self._file_meta.get("account")
+        if password is None:
+            kdf = {"name": "jace", "sub": (acct or {}).get("id", "")}
+        else:
+            kdf = dict(crypto.DEFAULT_KDF)
+            if not use_secret_key:
+                kdf["secretKey"] = False
+        kek = crypto.derive_kek(password, secret_key, salt, kdf, jace_key)
         self._file_meta = {
             "format": FORMAT,
             "account": account if account is not None else self._file_meta.get("account"),
@@ -158,6 +178,24 @@ class Vault:
             "wrappedKey": crypto.seal(kek, self._key, AAD_KEY),
             "keyChangedAt": now_iso(),
         }
+
+    def set_key_mode(self, mode: str, password: str | None = None, current: str | None = None,
+                     jace_key: bytes | None = None) -> None:
+        """Switch between a master password ("password") and unlocking with Jace ("jace")."""
+        with self.lock_:
+            self.require()
+            if self.key_mode() == "password" and not self.verify_password(current or ""):
+                raise VaultError("That master password is wrong.")
+            if mode == "password":
+                if not password or len(password) < 10:
+                    raise VaultError("Use at least 10 characters for your master password.")
+                self._wrap(password, None, use_secret_key=False)
+            elif mode == "jace":
+                self._wrap(None, None, jace_key=jace_key)
+                self.update_device(secretKey=None)
+            else:
+                raise VaultError("Unknown unlock method.")
+            self.save()
 
     def set_secret_key(self, password: str, use: bool) -> str | None:
         """Turns the Secret Key on or off (master password needed). Returns the Secret Key in use, if any."""
@@ -171,7 +209,8 @@ class Vault:
             self.save()
             return sk
 
-    def unlock(self, password: str, secret_key: str | None = None, file: dict | None = None) -> None:
+    def unlock(self, password: str | None, secret_key: str | None = None, file: dict | None = None,
+               jace_key: bytes | None = None) -> None:
         """Unlocks the vault on disk (or `file`, a synced copy being restored)."""
         with self.lock_:
             f = file or self.read_file()
@@ -181,7 +220,7 @@ class Vault:
             sk = (secret_key or self.device().get("secretKey")) if uses_sk else None
             if uses_sk and not sk:
                 raise VaultError("Enter your Secret Key (it's on your Emergency Kit).")
-            kek = crypto.derive_kek(password, sk, crypto.b64d(f["salt"]), f["kdf"])
+            kek = crypto.derive_kek(password, sk, crypto.b64d(f["salt"]), f["kdf"], jace_key)
             key = crypto.open_sealed(kek, f["wrappedKey"], AAD_KEY)
             data = crypto.open_json(key, f["data"], AAD_DATA)
             self._key, self._data = key, data
@@ -209,6 +248,8 @@ class Vault:
             self.save()
 
     def verify_password(self, password: str) -> bool:
+        if self.key_mode() == "jace":
+            return self.unlocked  # no master password: being signed in and unlocked is the check
         try:
             f = self.read_file()
             kek = crypto.derive_kek(password, self.device().get("secretKey", ""), crypto.b64d(f["salt"]), f["kdf"])

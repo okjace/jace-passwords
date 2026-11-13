@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "Jace Passwords"
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.0.3"
 APP_RELEASE_DATE = "2026-11-13"
 AUTHOR = "jace.deb"
 GITHUB_REPO = "okjace/jace-passwords"
@@ -16,6 +16,8 @@ APP_ID = "io.github.okjace.JacePasswords"
 JACE_URL = os.environ.get("JACE_URL", "https://jaceo.vercel.app").rstrip("/")
 CLIENT_ID = os.environ.get("JACE_PASSWORDS_CLIENT_ID", "00000000-0000-0000-0000-000000000004")
 SYNC_COLLECTION = "pw-vault"
+# The Jace Passwords web app. Also hands out the key for vaults unlocked with Jace (no master password).
+WEB_URL = os.environ.get("JACE_PASSWORDS_WEB_URL", "https://jace-passwords.vercel.app").rstrip("/")
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("JACE_PASSWORDS_PORT", "47620"))
