@@ -89,7 +89,11 @@ function tileFor(i, cls = "") {
 }
 function subtitle(i) {
   const f = i.fields || {};
-  if (i.type === "login" && f.passkeys?.length && !f.password) return `🗝️ Passkey${f.username ? " · " + f.username : ""}`;
+  if (i.type === "login" && f.passkeys?.length && (!f.password || S.view === "passkeys")) {
+    const who = [...new Set(f.passkeys.map((p) => p.userName || p.userDisplayName).filter(Boolean))].join(", ") || f.username;
+    const n = f.passkeys.length;
+    return `🗝️ ${n > 1 ? n + " passkeys" : "Passkey"}${who ? " · " + who : ""}${f.password ? " · with password" : ""}`;
+  }
   if (i.type === "login") return f.signInWith ? `Sign in with ${PROVIDERS[f.signInWith.provider]?.name || "service"}` : f.username || hostOf(f.urls?.[0]) || "";
   if (i.type === "card") { const n = (f.number || "").replace(/\D/g, ""); return `${f.brand || "Card"} ${f.cardType === "debit" ? "debit" : "credit"} •••• ${n.slice(-4)}`; }
   if (i.type === "note") return (f.body || "").split("\n")[0].slice(0, 60);
@@ -360,7 +364,7 @@ function renderMain(app) {
 
   const items = currentItems();
   if (S.selected && !items.find((i) => i.id === S.selected)) S.selected = null;
-  const title = S.view === "all" ? "All items" : S.view === "favorites" ? "Favorites" : S.view === "trash" ? "Trash" : S.view === "2fa" ? "2FA codes" : S.view === "passkeys" ? "Passkeys" : S.view === "passkeys" ? "Passkeys"
+  const title = S.view === "all" ? "All items" : S.view === "favorites" ? "Favorites" : S.view === "trash" ? "Trash" : S.view === "2fa" ? "2FA codes" : S.view === "passkeys" ? "Passkeys"
     : S.view.startsWith("type:") ? TYPES[S.view.slice(5)].plural : vaultOf(S.view.slice(6))?.name || "";
   const list = `<section class="list">
     <div class="head"><input class="input" id="search" placeholder="Search ${h(title.toLowerCase())}  (Ctrl+K)" value="${h(S.search)}" autocomplete="off">
@@ -519,6 +523,22 @@ function modal(html, onMount) {
   $("input,textarea,select", root)?.focus();
 }
 function closeModal() { $("#modal-root").innerHTML = ""; }
+// Our own "Are you sure?" box: browser confirm() boxes are blocked or answered "no" by some app windows.
+function ask(text, ok = "Delete", danger = true) {
+  return new Promise((resolve) => {
+    const box = document.createElement("div");
+    const [head, ...rest] = String(text).split("\n\n");
+    box.innerHTML = `<div class="backdrop" style="z-index:1000"><div class="modal" role="alertdialog" style="max-width:440px">
+      <div class="mb"><p style="margin:0 0 8px"><b>${h(head)}</b></p>${rest.map((t) => `<p class="muted small">${h(t)}</p>`).join("")}</div>
+      <div class="mf"><button type="button" class="btn" data-x="no">Cancel</button><button type="button" class="btn ${danger ? "danger" : "primary"}" data-x="yes">${h(ok)}</button></div></div></div>`;
+    const done = (v) => { box.remove(); document.removeEventListener("keydown", key, true); resolve(v); };
+    const key = (e) => { if (e.key === "Escape") { e.stopPropagation(); done(false); } };
+    box.addEventListener("click", (e) => { e.stopPropagation(); const x = e.target.closest("[data-x]")?.dataset.x; if (x) done(x === "yes"); else if (e.target.classList.contains("backdrop")) done(false); });
+    document.addEventListener("keydown", key, true);
+    document.body.appendChild(box);
+    box.querySelector("[data-x=yes]").focus();
+  });
+}
 
 function pickType() {
   modal(`<div class="modal"><div class="mh"><h3>New item</h3><button class="btn ghost icon" data-a="close">✕</button></div>
@@ -557,7 +577,8 @@ function editItem(item, type) {
       <label class="lbl" for="f-totp">Two-factor code (2FA)</label>
       <div class="row"><input class="input mono grow" id="f-totp" value="${h(f.totp || "")}" placeholder="Setup key or otpauth:// link" autocomplete="off" spellcheck="false">
         <label class="btn" title="Read a QR code screenshot">📷 QR<input type="file" accept="image/*" id="qr-file" hidden></label></div>
-      <div class="small muted" id="totp-preview"></div>`;
+      <div class="small muted" id="totp-preview"></div>
+      ${f.passkeys?.length ? `<label class="lbl">Passkeys</label>${f.passkeys.map((p) => `<div class="small" style="margin-bottom:4px">🗝️ ${h(p.userName || p.userDisplayName || f.username || "Passkey")} <span class="muted">· ${h(p.rpId)} · stays with this login</span></div>`).join("")}` : `<div class="small muted" style="margin-top:10px">🗝️ Passkeys you create on this login's website are saved here.</div>`}`;
   } else if (type === "card") {
     fields = `${inp("f-cardholder", "Cardholder name", f.cardholder || "", 'autocomplete="off"')}
       <label class="lbl" for="f-number">Card number</label><input class="input mono" id="f-number" value="${h(f.number || "")}" inputmode="numeric" autocomplete="off"><div class="small muted" id="card-check"></div>
@@ -899,7 +920,7 @@ const ACTIONS = {
     if (/QtWebEngine/.test(navigator.userAgent)) toast("Finish signing in to Jace in your browser…");
     location.href = r.url;
   },
-  async "jace-signout"() { if (!confirm("Sign out of Jace? Your vault stays on this computer; sync stops.")) return; await POST("jace/signout"); if (S.onboard) S.onboard.remote = undefined; await refreshState(); },
+  async "jace-signout"() { if (!(await ask("Sign out of Jace? Your vault stays on this computer; sync stops.", "Sign out", false))) return; await POST("jace/signout"); if (S.onboard) S.onboard.remote = undefined; await refreshState(); },
   "ob-create"() { S.onboard.step = "create"; render(); },
   "ob-restore"() { S.onboard.step = "restore"; render(); },
   "ob-back"() { S.onboard.step = "welcome"; render(); },
@@ -919,8 +940,8 @@ const ACTIONS = {
   async fav(el) { const i = S.data.items.find((x) => x.id === el.dataset.id); await api("PUT", "items/" + i.id, { favorite: !i.favorite }); await reload(); },
   async trash(el) { await api("DELETE", "items/" + el.dataset.id); S.selected = null; await reload(); toast("Moved to Trash"); },
   async restore(el) { await POST("items/" + el.dataset.id + "/restore"); await reload(); toast("Restored"); },
-  async purge(el) { if (!confirm("Delete this item forever? This can't be undone.")) return; await api("DELETE", "items/" + el.dataset.id + "?purge=1"); S.selected = null; await reload(); },
-  async "empty-trash"() { if (!confirm("Delete everything in Trash forever? This can't be undone.")) return; await api("DELETE", "trash"); await reload(); },
+  async purge(el) { if (!(await ask("Delete this item forever? This can't be undone.", "Delete", true))) return; await api("DELETE", "items/" + el.dataset.id + "?purge=1"); S.selected = null; await reload(); },
+  async "empty-trash"() { if (!(await ask("Delete everything in Trash forever? This can't be undone.", "Delete", true))) return; await api("DELETE", "trash"); await reload(); },
   reveal(el) { const k = el.dataset.k; S.revealed.has(k) ? S.revealed.delete(k) : S.revealed.add(k); if (k.endsWith(":Card number")) S.revealed.has(k) ? S.revealed.add(k.split(":")[0] + ":num") : S.revealed.delete(k.split(":")[0] + ":num"); renderMain($("#app")); },
   copy(el) { copy(el.dataset.val, el.dataset.what || "Copied"); },
   "copy-totp"(el) { const c = S.codes[el.dataset.id]; if (c) copy(c.code, "2FA code copied"); },
@@ -969,14 +990,14 @@ const ACTIONS = {
     closeModal(); S.selected = r.id; await reload(); toast("Passkey linked");
   },
   async "del-passkey"(el) {
-    if (!confirm("Delete this passkey? You won't be able to sign in with it any more — add another sign-in method on the site first.")) return;
+    if (!(await ask("Delete this passkey? You won't be able to sign in with it any more — add another sign-in method on the site first.", "Delete", true))) return;
     const i = S.data.items.find((x) => x.id === el.dataset.id);
     await api("PUT", "items/" + i.id, { fields: { ...i.fields, passkeys: i.fields.passkeys.filter((p) => p.credentialId !== el.dataset.cred) } });
     await reload(); toast("Passkey deleted");
   },
   "new-vault"() { editVault(null); },
   "edit-vault"(el) { editVault(S.data.vaults.find((v) => v.id === el.dataset.id)); },
-  async "del-vault"(el) { if (!confirm("Delete this vault? Its items move to Trash.")) return; try { await api("DELETE", "vaults/" + el.dataset.id); closeModal(); S.view = "all"; await reload(); } catch (x) { toast(x.message); } },
+  async "del-vault"(el) { if (!(await ask("Delete this vault? Its items move to Trash.", "Delete", true))) return; try { await api("DELETE", "vaults/" + el.dataset.id); closeModal(); S.view = "all"; await reload(); } catch (x) { toast(x.message); } },
   "wt-filter"(el) { S.filterIds = { ids: S.watch[el.dataset.k], label: el.dataset.l }; S.view = "all"; S.selected = null; render(); },
   "bt-filter"() { S.filterIds = { ids: Object.keys(S.breach.breached), label: "Breached" }; S.view = "all"; render(); },
   async "breach-check"(el) { el.disabled = true; el.textContent = "Checking…"; try { S.breach = await POST("watchtower/breach"); } catch (x) { toast(x.message); } renderWatchtower($("#page")); },
@@ -1000,15 +1021,15 @@ const ACTIONS = {
       });
     });
   },
-  "use-device-unlock"() {
-    if (!confirm("Open this vault without a master password?\n\nIt stays encrypted on disk, but anyone who can use this computer will be able to open it.")) return;
+  async "use-device-unlock"() {
+    if (!(await ask("Open this vault without a master password?\n\nIt stays encrypted on disk, but anyone who can use this computer will be able to open it.", "Remove password", true))) return;
     passwordPrompt("Open without a password", "Enter your current master password to switch.", async (pw) => {
       await POST("key-mode", { mode: "device", current: pw });
       closeModal(); await reload(); toast("Your vault now opens without a password on this computer");
     });
   },
-  "use-jace-unlock"() {
-    if (!confirm("Unlock with your Jace account instead of a master password?\n\nYour vault stays encrypted, but no longer end-to-end: the Jace Passwords server will hold the key for your account, so whoever controls it, or gets into your Jace account, could open your vault.")) return;
+  async "use-jace-unlock"() {
+    if (!(await ask("Unlock with your Jace account instead of a master password?\n\nYour vault stays encrypted, but no longer end-to-end: the Jace Passwords server will hold the key for your account, so whoever controls it, or gets into your Jace account, could open your vault.", "Use Jace account", false))) return;
     passwordPrompt("Unlock with Jace instead", "Enter your current master password to switch.", async (pw) => {
       await POST("key-mode", { mode: "jace", current: pw });
       closeModal(); await reload(); toast("Your vault now unlocks with your Jace account");

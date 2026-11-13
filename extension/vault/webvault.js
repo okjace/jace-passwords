@@ -277,6 +277,17 @@
       }
       d[coll] = [...mine.values()];
     }
+    const gone = { ...(d.deletedVaults || {}) };
+    for (const [id, t] of Object.entries(remoteData.deletedVaults || {})) if (t > (gone[id] || "")) { gone[id] = t; changed = true; }
+    if (Object.keys(gone).length) {
+      d.deletedVaults = gone;
+      const keep = d.vaults.filter((v) => !(gone[v.id] && (v.updatedAt || "") <= gone[v.id]));
+      if (keep.length && keep.length !== d.vaults.length) {
+        const ids = new Set(keep.map((v) => v.id));
+        for (const i of d.items) if (!ids.has(i.vaultId)) i.vaultId = keep[0].id;
+        d.vaults = keep;
+      }
+    }
     if ((remoteData.settings?.updatedAt || "") > (d.settings?.updatedAt || "")) { d.settings = remoteData.settings; changed = true; }
     if ((remoteFile.keyChangedAt || "") > (V.meta.keyChangedAt || "")) {
       for (const k of ["kdf", "salt", "wrappedKey", "keyChangedAt"]) V.meta[k] = remoteFile[k];
@@ -333,7 +344,10 @@
           Object.assign(sync, { status: "synced", at: nowIso(), version: r.body.version });
           break;
         }
-      } catch (e) { Object.assign(sync, { status: "error", error: e.message }); }
+      } catch (e) {
+        const raw = typeof DOMException !== "undefined" && e instanceof DOMException;
+        Object.assign(sync, { status: "error", error: raw ? `Your browser's encryption failed while syncing (${e.name}: ${e.message}).` : e.message });
+      }
       syncing = null;
       return sync;
     })();
@@ -686,6 +700,8 @@
         }
         if (method === "DELETE") {
           if (d.vaults.length <= 1) throw new ApiError("You need at least one vault.");
+          if (!d.vaults.some((v) => v.id === arg)) throw new ApiError("That vault doesn't exist.");
+          (d.deletedVaults ||= {})[arg] = t; // so sync doesn't bring it back from another device's copy
           d.vaults = d.vaults.filter((v) => v.id !== arg);
           for (const i of d.items) if (i.vaultId === arg && !i.purged) { i.deletedAt = i.updatedAt = t; i.vaultId = d.vaults[0].id; }
           await changed(); return { ok: true };
@@ -875,6 +891,16 @@
     for (const i of require_().items) if (ids.has(i.id)) for (const p of i.fields?.passkeys || []) if (p.rpId === rpId) out.push([i, p]);
     return out;
   }
+  // The login a new passkey belongs with (vault.pick_login_for_passkey): same site and the same
+  // account if one says so, else one with no username, else the site's only login.
+  function pickLoginForPasskey(items, url, pk) {
+    const logins = items.filter((i) => matches(i, url));
+    if (!logins.length) return null;
+    const names = new Set([pk.userName, pk.userDisplayName].filter((n) => n && n.trim()).map((n) => n.trim().toLowerCase()));
+    const user = (i) => String(i.fields?.username || "").trim().toLowerCase();
+    return logins.find((i) => user(i) && names.has(user(i))) || logins.find((i) => !user(i))
+      || (logins.length === 1 && !(logins[0].fields?.passkeys || []).some((p) => p.userHandle && p.userHandle !== pk.userHandle) ? logins[0] : null);
+  }
   async function passkeyCreate({ rpId, origin, clientDataJSON, user = {}, algs = [], rpName = "", exclude = [] }) {
     checkOrigin(origin, rpId);
     const cdj = b64uDec(clientDataJSON), cd = JSON.parse(dec.decode(cdj));
@@ -894,7 +920,7 @@
     // save it on the login for that site and username (vault.save_passkey)
     for (const [i, p] of passkeysFor(rpId)) if (p.userHandle === stored.userHandle) i.fields.passkeys = i.fields.passkeys.filter((x) => x !== p);
     const url = "https://" + rpId;
-    let target = visible().find((i) => matches(i, url) && ["", stored.userName].includes(i.fields?.username || ""));
+    let target = pickLoginForPasskey(visible(), url, stored);
     target = target ? getItem(target.id) : createItem({ type: "login", title: rpName || hostname(url), fields: { username: stored.userName, urls: [url] } });
     target.fields ||= {};
     if (!target.fields.username) target.fields.username = stored.userName;
@@ -1039,7 +1065,19 @@
     return true;
   }
 
-  return { api, ext: extApi, fetchRemote, me, forgetUser, lock, isUnlocked: () => !!V.data, exists, keyMode: () => (exists() ? keyMode(store.get("vault")) : null),
+  // A browser crypto failure (DOMException "OperationError" and friends) says nothing useful on its
+  // own; say what Jace Passwords was doing, so it can be traced.
+  const explain = (fn, what) => async (a, b, c) => {
+    try { return await fn(a, b, c); } catch (e) {
+      if (e && typeof DOMException !== "undefined" && e instanceof DOMException && !e.locked) {
+        throw new ApiError(`Your browser's encryption failed while ${what(a, b)} (${e.name}: ${e.message}). Please report this.`);
+      }
+      throw e;
+    }
+  };
+  const apiSafe = explain(api, (m, r) => `doing ${m} ${String(r).split("?")[0]}`);
+  const extSafe = explain(extApi, (r) => `doing ${r}`);
+  return { api: apiSafe, ext: extSafe, fetchRemote, me, forgetUser, lock, isUnlocked: () => !!V.data, exists, keyMode: () => (exists() ? keyMode(store.get("vault")) : null),
     exportSession, restoreSession, checkAutoLock, syncNow, _vault: V };
   } // create
 
@@ -1074,17 +1112,9 @@
     },
     async signout() {
       await fetch("/api/jace/signout", { method: "POST", credentials: "same-origin", headers: { "X-Jace-Passwords": "1" } });
-      try { sessionStorage.setItem("jp-silent", "1"); } catch { /* */ }
     },
   });
-  // Silent sign-in (Jace's prompt=none), once per visit: if you're already signed in to Jace
-  // (Jace Browser does this for Jace's own apps), you're signed in here too, with no button.
-  {
-    let tried = false;
-    try { tried = sessionStorage.getItem("jp-silent") === "1"; sessionStorage.setItem("jp-silent", "1"); } catch { tried = true; }
-    if (!tried && !/[?&](signin_error|web=1)\b/.test(location.search)) {
-      web.me().then((u) => { if (!u) location.replace("/api/jace/signin?prompt=none"); });
-    }
-  }
+  // No silent sign-in here: signing in with the computer's Jace account (Jace OS) is only for the
+  // desktop app. The web app signs in when you press "Sign in with Jace".
   window.JPWeb = web;
 })();

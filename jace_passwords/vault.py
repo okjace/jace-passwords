@@ -436,12 +436,8 @@ class Vault:
             for i, p in self.passkeys_for(passkey["rpId"]):
                 if p.get("userHandle") == passkey["userHandle"]:
                     i["fields"]["passkeys"] = [x for x in i["fields"]["passkeys"] if x is not p]
-            target = None
-            for i in self.visible_items():
-                f = i.get("fields", {})
-                if matches(i, url) and (f.get("username", "") in ("", passkey["userName"])):
-                    target = self.get_item(i["id"])
-                    break
+            found = pick_login_for_passkey(self.visible_items(), url, passkey, matches)
+            target = self.get_item(found["id"]) if found else None
             if target is None:
                 target = self.create_item({"type": "login", "title": rp_name or hostname(url),
                                            "fields": {"username": passkey["userName"], "urls": [url]}})
@@ -554,11 +550,11 @@ class Vault:
             live = [v for v in d["vaults"] if not v.get("deleted")]
             if len(live) <= 1:
                 raise VaultError("You need at least one vault.")
-            for v in d["vaults"]:
-                if v["id"] == vault_id:
-                    v["deleted"] = True
-                    v["updatedAt"] = now_iso()
-            d["vaults"] = [v for v in d["vaults"] if not v.get("deleted")]
+            if not any(v["id"] == vault_id for v in live):
+                raise VaultError("That vault doesn't exist.")
+            # Remembered so sync doesn't bring it back from another device's copy.
+            d.setdefault("deletedVaults", {})[vault_id] = now_iso()
+            d["vaults"] = [v for v in d["vaults"] if v["id"] != vault_id and not v.get("deleted")]
             for i in d["items"]:
                 if i.get("vaultId") == vault_id and not i.get("purged"):
                     i["deletedAt"] = i["updatedAt"] = now_iso()
@@ -604,6 +600,21 @@ class Vault:
                         mine[r["id"]] = r
                         changed = True
                 d[coll] = list(mine.values())
+            gone = dict(d.get("deletedVaults") or {})
+            for vid, t in (remote.get("deletedVaults") or {}).items():
+                if t > gone.get(vid, ""):
+                    gone[vid] = t
+                    changed = True
+            if gone:
+                d["deletedVaults"] = gone
+                keep = [v for v in d["vaults"] if not (v["id"] in gone and v.get("updatedAt", "") <= gone[v["id"]])]
+                if keep and len(keep) != len(d["vaults"]):
+                    fallback = keep[0]["id"]
+                    ids = {v["id"] for v in keep}
+                    for i in d["items"]:
+                        if i.get("vaultId") not in ids:
+                            i["vaultId"] = fallback
+                    d["vaults"] = keep
             rs, ls = remote.get("settings", {}), d.get("settings", {})
             if rs.get("updatedAt", "") > ls.get("updatedAt", ""):
                 d["settings"] = rs
@@ -616,3 +627,22 @@ class Vault:
             if changed:
                 self.save()
             return changed
+
+
+def pick_login_for_passkey(items: list, url: str, passkey: dict, matches) -> dict | None:
+    """The login a new passkey belongs with: same site and the same account if one says so,
+    else one with no username, else the site's only login. None: make a new login."""
+    logins = [i for i in items if matches(i, url)]
+    if not logins:
+        return None
+    names = {n.strip().lower() for n in (passkey.get("userName"), passkey.get("userDisplayName")) if n and n.strip()}
+    user = lambda i: (i.get("fields", {}).get("username") or "").strip().lower()  # noqa: E731
+    for i in logins:
+        if user(i) and user(i) in names:
+            return i
+    for i in logins:
+        if not user(i):
+            return i
+    others = [i for i in logins if not any(p.get("userHandle") and p.get("userHandle") != passkey.get("userHandle")
+                                           for p in i.get("fields", {}).get("passkeys", []))]
+    return logins[0] if len(logins) == 1 and others else None

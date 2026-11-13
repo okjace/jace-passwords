@@ -37,6 +37,36 @@ class Core(unittest.TestCase):
         self.assertTrue(self.v.merge_remote(other.file_dict()))
         self.assertIn("Remote note", [i["title"] for i in self.v.visible_items()])
 
+    def _copy(self):
+        import copy
+        other = Vault(Path(tempfile.mkdtemp())); other._key = self.v._key; other._data = copy.deepcopy(self.v._data)
+        other._file_meta = dict(self.v._file_meta); other.device_path = self.v.device_path; other.path = other.dir / "vault.json"
+        return other
+
+    def test_deleted_vault_stays_deleted_after_sync(self):
+        self.v.create("correct horse battery", None)
+        work = self.v.create_vault({"name": "Work"})
+        it = self.v.create_item({"type": "login", "title": "In work", "vaultId": work["id"], "fields": {}})
+        remote = self._copy()  # another device still has the Work vault
+        time.sleep(0.01)
+        self.v.delete_vault(work["id"])
+        self.v.merge_remote(remote.file_dict())
+        self.assertNotIn(work["id"], [x["id"] for x in self.v.require()["vaults"]])
+        self.assertIn(self.v.get_item(it["id"])["vaultId"], [x["id"] for x in self.v.require()["vaults"]])
+        remote.merge_remote(self.v.file_dict())  # and the other device learns it's gone
+        self.assertNotIn(work["id"], [x["id"] for x in remote.require()["vaults"]])
+
+    def test_passkey_joins_existing_login(self):
+        self.v.create("correct horse battery", None)
+        login = self.v.create_item({"type": "login", "title": "GitHub", "fields": {"username": "me@example.com", "password": "pw",
+                                                                                  "urls": ["https://github.com/login"]}})
+        pk = {"credentialId": "c1", "rpId": "github.com", "userHandle": "h1", "userName": "octocat", "privateKey": "x"}
+        saved = self.v.save_passkey(pk, "GitHub")  # different username, but the site's only login
+        self.assertEqual(saved["id"], login["id"])
+        self.assertEqual(len([i for i in self.v.visible_items() if i["type"] == "login"]), 1)
+        pk2 = {**pk, "credentialId": "c2", "userHandle": "h2", "userName": "second"}
+        self.assertNotEqual(self.v.save_passkey(pk2, "GitHub")["id"], login["id"])  # another account: its own login
+
     def test_trash_purge(self):
         self.v.create("correct horse battery", None)
         it = self.v.create_item({"type": "card", "title": "Visa", "fields": {"number": "4111111111111111"}})

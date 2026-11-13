@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.2
+
+- **Deleting a vault works:** the "Are you sure?" question is now the app's own box. Some app windows quietly answered "no" to the browser's, so nothing happened. The same goes for deleting items, passkeys and Trash.
+- **Deleted vaults stay deleted:** sync no longer brings them back from another device.
+- **New passkeys join your existing login** for that site, even when the site's username doesn't match exactly. They show on the login, in its edit form and in the Passkeys tab, which now lists each login's passkeys.
+- **Signing in with the computer's Jace account (Jace OS) is only in the desktop app.** The web app no longer signs in silently; press "Sign in with Jace".
+- **Clearer errors:** if your browser's encryption fails, the message now says what Jace Passwords was doing.
+
 ## 1.3.1
 
 - **The desktop app updates itself:** it checks GitHub for new releases, downloads the right file in the background, checks it against GitHub's SHA-256, and installs it when you quit or when you choose **Restart to update** in the tray. It installs in the same place, with the same shortcuts and settings. Install 1.3.1 by hand once, and it handles every update after that.
