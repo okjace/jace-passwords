@@ -5,13 +5,13 @@ import threading
 import urllib.request
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QSettings, QUrl, Signal
+from PySide6.QtCore import QObject, QSettings, Qt, QUrl, Signal
 from PySide6.QtGui import QAction, QDesktopServices, QIcon
-from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings
+from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineScript, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication, QFileDialog, QMainWindow, QMenu, QSystemTrayIcon
 
-from .. import APP_NAME, APP_VERSION, GITHUB_REPO, GITHUB_URL, HOST, PORT
+from .. import APP_NAME, APP_VERSION, GITHUB_REPO, GITHUB_URL, HOST, PORT, net
 from . import install
 
 APP_ORIGIN = f"http://{HOST}:{PORT}"
@@ -72,9 +72,36 @@ class MainWindow(QMainWindow):
         if hasattr(page, "permissionRequested"):  # Qt 6.8+
             page.permissionRequested.connect(self._permission)
         page.printRequested.connect(self._print)
+        # Your system's light/dark setting: the web view doesn't pass it on to the page on Linux,
+        # so tell the page directly (app.js uses it when the theme is "System"), and live.
+        self.theme_script = QWebEngineScript()
+        self.theme_script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+        self.theme_script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        self.theme_script.setRunsOnSubFrames(False)
+        self._set_theme_script()
+        page.scripts().insert(self.theme_script)
+        hints = QApplication.styleHints()
+        if hasattr(hints, "colorSchemeChanged"):
+            hints.colorSchemeChanged.connect(self._theme_changed)
         self.view.setPage(page)
         self.view.setUrl(QUrl(launch_url))
         self.setCentralWidget(self.view)
+
+    @staticmethod
+    def system_theme() -> str:
+        hints = QApplication.styleHints()
+        scheme = hints.colorScheme() if hasattr(hints, "colorScheme") else None
+        return "light" if scheme == Qt.ColorScheme.Light else "dark"  # unknown: dark, like Jace's apps
+
+    def _set_theme_script(self):
+        self.theme_script.setSourceCode(f"window.JP_SYSTEM_THEME = {json.dumps(self.system_theme())};")
+
+    def _theme_changed(self, *_):
+        page = self.view.page()
+        page.scripts().remove(self.theme_script)
+        self._set_theme_script()
+        page.scripts().insert(self.theme_script)
+        page.runJavaScript(f"window.JP_SYSTEM_THEME = {json.dumps(self.system_theme())}; window.JP_applyTheme && JP_applyTheme();")
 
     # clipboard (copy password, 2FA code…) for the vault page only
     def _permission(self, perm):
@@ -173,7 +200,7 @@ def check_updates(bridge: Bridge, manual=False):
             req = urllib.request.Request(f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest",
                                          headers={"User-Agent": f"JacePasswords/{APP_VERSION}",
                                                   "Accept": "application/vnd.github+json"})
-            with urllib.request.urlopen(req, timeout=15) as r:
+            with net.urlopen(req, timeout=15) as r:
                 rel = json.loads(r.read())
             tag = rel.get("tag_name", "")
             if _newer(tag, APP_VERSION):

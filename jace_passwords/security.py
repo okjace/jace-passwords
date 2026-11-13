@@ -4,6 +4,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
+from . import net
 from .generator import strength
 
 MULTI_PART_TLDS = {"co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "net.au", "org.au", "co.nz", "co.jp",
@@ -120,7 +121,7 @@ def pwned_count(password: str) -> int:
     h = hashlib.sha1(password.encode()).hexdigest().upper()
     req = urllib.request.Request(f"https://api.pwnedpasswords.com/range/{h[:5]}",
                                  headers={"User-Agent": "JacePasswords/1.0", "Add-Padding": "true"})
-    with urllib.request.urlopen(req, timeout=15) as r:
+    with net.urlopen(req, timeout=15) as r:
         for line in r.read().decode().splitlines():
             suffix, _, count = line.partition(":")
             if suffix == h[5:]:

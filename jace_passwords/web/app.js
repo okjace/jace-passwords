@@ -108,10 +108,12 @@ function meterHTML(s) {
     <div class="small muted" style="margin-top:4px">${h(s.label)}${s.bits ? ` · ~${s.bits} bits` : ""}</div>`;
 }
 function applyTheme() {
-  const t = S.server?.settings?.theme || localStorageGet("theme") || "system";
+  let t = S.server?.settings?.theme || localStorageGet("theme") || "system";
+  if (t === "system" && window.JP_SYSTEM_THEME) t = window.JP_SYSTEM_THEME; // the desktop app tells us
   if (t === "system") document.documentElement.removeAttribute("data-theme");
   else document.documentElement.setAttribute("data-theme", t);
 }
+window.JP_applyTheme = applyTheme;
 function localStorageGet(k) { try { return localStorage.getItem("jp-" + k); } catch { return null; } }
 function localStorageSet(k, v) { try { localStorage.setItem("jp-" + k, v); } catch { /* private mode */ } }
 

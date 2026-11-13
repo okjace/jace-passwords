@@ -30,6 +30,7 @@ rm -rf "$BUILD"
   --add-data "$ROOT/jace_passwords/web:jace_passwords/web" \
   --add-data "$ROOT/jace_passwords/desktop/icon.png:jace_passwords/desktop" \
   --hidden-import PySide6.QtWebEngineWidgets --hidden-import PySide6.QtWebEngineCore \
+  --collect-data certifi \
   --exclude-module tkinter --exclude-module _tkinter \
   "$ROOT/packaging/entry.py"
 

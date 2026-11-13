@@ -41,6 +41,7 @@ def pyinstaller(name: str, icon: Path, extra=()):
          "--add-data", f"{PKG / 'web'}{os.pathsep}jace_passwords/web",
          "--add-data", f"{PKG / 'desktop' / 'icon.png'}{os.pathsep}jace_passwords/desktop",
          "--hidden-import", "PySide6.QtWebEngineWidgets", "--hidden-import", "PySide6.QtWebEngineCore",
+         "--collect-data", "certifi",  # trusted certificates (see jace_passwords/net.py)
          "--exclude-module", "tkinter", "--exclude-module", "_tkinter",
          *extra, ROOT / "packaging" / "entry.py"])
     return BUILD / "dist"

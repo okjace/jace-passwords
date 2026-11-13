@@ -14,7 +14,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from . import APP_VERSION, CLIENT_ID, HOST, JACE_URL, PORT, SYNC_COLLECTION
+from . import APP_VERSION, CLIENT_ID, HOST, JACE_URL, PORT, SYNC_COLLECTION, net
 
 UA = f"JacePasswords/{APP_VERSION}"
 NOT_DEPLOYED = ("Jace doesn't support Jace Passwords sync yet: deploy Jace with the \"pw-vault\" collection "
@@ -43,7 +43,7 @@ def _request(method: str, url: str, form=None, body=None, token=None, headers=No
         h["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(url, data=data, headers=h, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with net.urlopen(req, timeout=30) as r:
             raw = r.read().decode()
             return r.status, (json.loads(raw) if raw else {})
     except urllib.error.HTTPError as e:
@@ -52,8 +52,13 @@ def _request(method: str, url: str, form=None, body=None, token=None, headers=No
         except ValueError:
             err = {"error": str(e)}
         return e.code, err
-    except (urllib.error.URLError, TimeoutError, socket.timeout) as e:
+    except urllib.error.URLError as e:
+        import ssl
+        if isinstance(e.reason, ssl.SSLError):
+            raise JaceError(f"Couldn't check Jace's security certificate ({e.reason.reason or e.reason}).") from e
         raise JaceError("Couldn't reach Jace. Check your internet connection.") from e
+    except (TimeoutError, socket.timeout) as e:
+        raise JaceError("Jace took too long to answer. Try again.") from e
 
 
 class Auth:

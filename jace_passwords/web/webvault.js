@@ -13,7 +13,7 @@
   const D = window.JP_DATA;
   const enc = new TextEncoder(), dec = new TextDecoder();
   const subtle = crypto.subtle;
-  const VERSION = "1.0.0";
+  const VERSION = "1.0.1";
   const FORMAT = "jace-passwords/1";
   const AAD_KEY = enc.encode("jace-passwords:key"), AAD_DATA = enc.encode("jace-passwords:data");
   const KDF = { name: "scrypt", n: 131072, r: 8, p: 1 };

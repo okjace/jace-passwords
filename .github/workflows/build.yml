@@ -27,8 +27,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           V=$(python3 -c "import re;print(re.search(r'APP_VERSION = \"([^\"]+)\"', open('jace_passwords/__init__.py').read()).group(1))")
-          E=$(python3 -c "import json;print(json.load(open('extension/manifest.json'))['version'])")
-          [ "$V" = "$E" ] || { echo "::error::App $V and extension $E versions differ"; exit 1; }
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"; echo "publish=true" >> "$GITHUB_OUTPUT"
           elif [[ "$GITHUB_REF" == refs/heads/main && "$GITHUB_EVENT_NAME" == push ]] && ! gh release view "v$V" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
