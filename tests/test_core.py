@@ -181,3 +181,34 @@ class VaultKeyService(unittest.TestCase):
         st2, body2 = get({"X-Jace-Passwords": "1", "Authorization": "Bearer good"})
         self.assertEqual(body["key"], body2["key"])  # stable per account
         srv.shutdown()
+
+
+class OpenWithoutPassword(unittest.TestCase):
+    """No master password and no Jace account: the vault opens on this device, still encrypted."""
+
+    def test_device_vault(self):
+        d = Path(tempfile.mkdtemp())
+        v = Vault(d)
+        self.assertIsNone(v.create(None, None))
+        self.assertEqual(v.key_mode(), "device")
+        v.create_item({"type": "login", "title": "Secret site", "fields": {"password": "pw"}})
+        raw = (d / "vault.json").read_text()
+        self.assertNotIn("Secret site", raw)                  # encrypted at rest
+        self.assertIn("deviceKey", v.device())
+        v.lock()
+        v.unlock(None)                                         # no password needed on this device
+        self.assertEqual([i["title"] for i in v.visible_items()], ["Secret site"])
+        with self.assertRaises(crypto.CryptoError):            # another device can't open it
+            Vault(Path(tempfile.mkdtemp())).unlock(None, file=json.loads(raw))
+        v.set_key_mode("password", password="x")               # any length works now
+        v.lock(); v.unlock("x")
+        v.set_key_mode("device", current="x")
+        v.lock(); v.unlock(None)
+        v.set_key_mode("jace", jace_key=b"k" * 32)             # signing in to Jace: moves to the Jace key
+        f = json.loads((d / "vault.json").read_text())
+        Vault(Path(tempfile.mkdtemp())).unlock(None, file=f, jace_key=b"k" * 32)
+
+    def test_short_password_ok(self):
+        v = Vault(Path(tempfile.mkdtemp()))
+        v.create("a", None)
+        v.lock(); v.unlock("a")

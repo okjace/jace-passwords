@@ -91,3 +91,54 @@ class Passkeys(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LinkAndImport(unittest.TestCase):
+    def setUp(self):
+        self.v = Vault(Path(tempfile.mkdtemp()))
+        self.v.create("correct horse battery", None)
+
+    def _pk(self, rp="github.com", user="me"):
+        stored, _ = pk.register(rp, f"https://{rp}", client_data("webauthn.create", b"x", f"https://{rp}"),
+                                {"id": pk.b64u(user.encode()), "name": user}, [-7])
+        return stored
+
+    def test_import_links_passkey_to_existing_login(self):
+        mine = self.v.create_item({"type": "login", "title": "GitHub", "fields": {"username": "me", "password": "old-pw",
+                                                                                  "urls": ["https://github.com/login"]}})
+        p = self._pk()
+        r = self.v.import_items([
+            {"type": "login", "title": "github.com", "fields": {"username": "me", "password": "from-bitwarden",
+                                                                "totp": "JBSWY3DPEHPK3PXP", "urls": ["https://github.com"], "passkeys": [p]}},
+            {"type": "login", "title": "Other", "fields": {"username": "x", "password": "y", "urls": ["https://other.com"]}},
+            {"type": "login", "title": "GitHub work", "fields": {"username": "work", "urls": ["https://github.com"],
+                                                                  "passkeys": [self._pk(user="work")]}},
+        ])
+        self.assertEqual(r, {"imported": 2, "passkeys": 2, "linked": 1})
+        got = self.v.get_item(mine["id"])["fields"]
+        self.assertEqual([x["credentialId"] for x in got["passkeys"]], [p["credentialId"]])
+        self.assertEqual(got["password"], "old-pw")           # your password is kept
+        self.assertEqual(got["totp"], "JBSWY3DPEHPK3PXP")      # missing details are filled in
+        titles = sorted(i["title"] for i in self.v.visible_items())
+        self.assertEqual(titles, ["GitHub", "GitHub work", "Other"])  # another account: its own login
+        # importing the same file again doesn't duplicate the passkey
+        self.v.import_items([{"type": "login", "title": "github.com", "fields": {"username": "me", "urls": ["https://github.com"], "passkeys": [p]}}])
+        self.assertEqual(len(self.v.get_item(mine["id"])["fields"]["passkeys"]), 1)
+
+    def test_move_passkey(self):
+        p = self._pk(rp="example.com", user="amy")
+        a = self.v.save_passkey(p, "Example")             # a login made just for the passkey
+        b = self.v.create_item({"type": "login", "title": "My Example account", "fields": {"username": "", "password": "pw"}})
+        self.v.move_passkey(a["id"], p["credentialId"], b["id"])
+        moved = self.v.get_item(b["id"])["fields"]
+        self.assertEqual(moved["passkeys"][0]["credentialId"], p["credentialId"])
+        self.assertIn("privateKey", moved["passkeys"][0])  # the key moves with it
+        self.assertEqual(moved["username"], "amy")
+        self.assertIn("https://example.com", moved["urls"])
+        self.assertNotIn("passkeys", self.v.get_item(a["id"])["fields"])
+        [(item, _)] = self.v.passkeys_for("example.com")
+        self.assertEqual(item["id"], b["id"])               # sign-in now uses the linked login
+        note = self.v.create_item({"type": "note", "title": "n", "fields": {"body": ""}})
+        from jace_passwords.vault import VaultError
+        with self.assertRaises(VaultError):
+            self.v.move_passkey(b["id"], p["credentialId"], note["id"])

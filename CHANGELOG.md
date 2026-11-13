@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.2.0
+
+- **Import from other password managers, passkeys included:**
+  - **Bitwarden** (.json): logins, passkeys, 2FA codes, cards, notes and identities.
+  - **Credential Exchange / CXF** (.json): logins, passkeys, 2FA codes, cards and notes.
+  - **1Password** (.1pux) and **Proton Pass** (zip): logins, 2FA codes, cards, notes and identities. Neither app exports usable passkeys.
+  - **CSV** from Chrome, Firefox, Safari, Edge and others, as before.
+  - Imported passkeys keep their original IDs and keys, so websites still recognize them.
+- **Passkeys linked to logins:** an imported passkey joins the login you already have for that site and account, adding to it instead of duplicating it. Every passkey has **🔗 Link to another login**, to move it, with its key, onto the right login.
+- **Open without a password:** skip the master password when creating a vault, with or without a Jace account. Without Jace, the vault opens on that device by itself; it's still encrypted on disk, but anyone using the device can open it. With Jace, it opens whenever you're signed in. Add a master password any time in Settings.
+- **Any master password length.** The strength meter still warns about weak ones.
+- **Watchtower uses established sources:**
+  - **2fa.directory** for which of your sites offer 2FA, by which methods, with setup guides.
+  - **The passkeys directory** for sites where you could use a passkey.
+  - **Have I Been Pwned's breach list** for **compromised websites**: sites breached after you last set your password there.
+  - The score now counts vulnerabilities fully and recommendations less.
+- **2FA autofill works on more sites:**
+  - Fields named just "code", "token" or "pin" are now recognized.
+  - Codes split across one-digit boxes are filled one digit per box.
+  - The menu opens by itself on a 2FA field.
+  - **Fill 2FA code** no longer forgets which login you just used.
+
 ## 1.1.0
 
 - **The browser extension works on its own,** with no desktop app needed:

@@ -9,6 +9,11 @@
   <label>Password<input type="password" name="password" autocomplete="current-password"></label>
   <button>Sign in</button></form>
 <form id="otp"><h3>2FA</h3><label>Authenticator code<input name="otp" autocomplete="one-time-code"></label></form>
+<form id="otp2"><h3>2FA (plain "code" field)</h3><label>Enter the code<input name="code" inputmode="numeric" maxlength="6"></label></form>
+<form id="otp3"><h3>2FA (six boxes)</h3><div class="boxes">
+  <input maxlength="1" inputmode="numeric" style="width:40px;display:inline-block"><input maxlength="1" inputmode="numeric" style="width:40px;display:inline-block"><input maxlength="1" inputmode="numeric" style="width:40px;display:inline-block"><input maxlength="1" inputmode="numeric" style="width:40px;display:inline-block"><input maxlength="1" inputmode="numeric" style="width:40px;display:inline-block"><input maxlength="1" inputmode="numeric" style="width:40px;display:inline-block">
+</div></form>
+<form id="promo"><h3>Not 2FA</h3><label>Promo code<input name="promo_code" maxlength="8"></label></form>
 <form id="pay"><h3>Checkout</h3>
   <label>Name on card<input name="ccname" autocomplete="cc-name"></label>
   <label>Card number<input name="cardnumber" autocomplete="cc-number"></label>

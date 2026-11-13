@@ -102,7 +102,8 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
         data = json.dumps(body if body is not None else {}).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Cache-Control", "no-store")
+        if "Cache-Control" not in (headers or {}):
+            self.send_header("Cache-Control", "no-store")
         for k, v in (headers or {}).items():
             self.send_header(k, v)
         for c in cookies:
@@ -203,6 +204,8 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
             return self._send(200, {"user": {"id": str(u.get("sub") or u.get("id") or ""),
                                              "username": u.get("preferred_username") or u.get("username") or "",
                                              "name": u.get("name") or "", "picture": u.get("picture") or ""}})
+        if route == "breaches":  # Have I Been Pwned's breached websites, for Watchtower (its API has no CORS)
+            return self._breaches()
         if route == "vault-key":
             return self._vault_key()
         if route == "sync":
@@ -212,6 +215,29 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
             status, r = _jace("GET", f"/api/oauth/sync/{COLLECTION}", token=token)
             return self._send(status, r)
         self._send(404, {"error": "not_found"})
+
+    _breach_cache = {"at": 0, "data": None}
+
+    def _breaches(self):
+        c = handler._breach_cache
+        if not c["data"] or c["at"] < time.time() - 21600:
+            req = urllib.request.Request("https://haveibeenpwned.com/api/v3/breaches",
+                                         headers={"User-Agent": UA, "Accept": "application/json"})
+            try:
+                with urllib.request.urlopen(req, timeout=25) as r:
+                    raw = json.loads(r.read())
+            except (urllib.error.URLError, TimeoutError, ValueError):
+                return self._send(502, {"error": "unreachable"}) if not c["data"] else self._send(200, c["data"])
+            out = {}
+            for b in raw:
+                d = (b.get("Domain") or "").lower()
+                if not d or b.get("IsSpamList") or b.get("IsFabricated") or b.get("IsRetired"):
+                    continue
+                out.setdefault(d, []).append({"name": b.get("Title") or b.get("Name"), "date": b.get("BreachDate") or "",
+                                              "added": b.get("AddedDate") or "", "count": b.get("PwnCount") or 0,
+                                              "passwords": "Passwords" in (b.get("DataClasses") or [])})
+            c.update(at=time.time(), data=out)
+        return self._send(200, c["data"], headers={"Cache-Control": "public, max-age=21600"})
 
     def _vault_key(self):
         """The key that unlocks a vault without a master password, for the signed-in Jace account.

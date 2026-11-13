@@ -126,12 +126,12 @@ class Vault:
                jace_key: bytes | None = None) -> str | None:
         """Makes a new vault. Returns its Secret Key, or None for a vault linked to Jace (no Secret Key).
         password=None: no master password, unlocked with the Jace account (jace_key)."""
-        if password is None:
-            if not (account and jace_key):
+        if password is None:  # no master password: Jace key if linked, else this device's key
+            if jace_key and not account:
                 raise VaultError("Sign in with Jace to use your Jace account instead of a master password.")
             use_secret_key = False
-        elif len(password) < 10:
-            raise VaultError("Use at least 10 characters for your master password.")
+        elif not password:
+            raise VaultError("Enter a master password.")
         with self.lock_:
             secret_key = crypto.new_secret_key() if use_secret_key else None
             self._key, self._data = os.urandom(32), empty_data()
@@ -143,12 +143,21 @@ class Vault:
     @staticmethod
     def file_uses_secret_key(f: dict) -> bool:
         kdf = f.get("kdf") or {}
-        return kdf.get("name") != "jace" and kdf.get("secretKey") is not False
+        return kdf.get("name") not in ("jace", "device") and kdf.get("secretKey") is not False
 
     @staticmethod
     def file_key_mode(f: dict) -> str:
-        """"password" (master password, maybe + Secret Key) or "jace" (unlocked with the Jace account)."""
-        return "jace" if (f.get("kdf") or {}).get("name") == "jace" else "password"
+        """"password" (master password, maybe + Secret Key), "jace" (opens with the Jace account) or
+        "device" (opens on this device, no password)."""
+        name = (f.get("kdf") or {}).get("name")
+        return name if name in ("jace", "device") else "password"
+
+    def device_key(self, create: bool = False) -> bytes | None:
+        k = self.device().get("deviceKey")
+        if not k and create:
+            k = crypto.b64e(os.urandom(32))
+            self.update_device(deviceKey=k)
+        return crypto.b64d(k) if k else None
 
     def key_mode(self) -> str:
         meta = self._file_meta or (self.read_file() if self.exists() else {})
@@ -163,13 +172,17 @@ class Vault:
             use_secret_key = self.file_uses_secret_key(self._file_meta)
         salt = os.urandom(16)
         acct = account if account is not None else self._file_meta.get("account")
-        if password is None:
+        device_key = None
+        if password is None and jace_key:
             kdf = {"name": "jace", "sub": (acct or {}).get("id", "")}
+        elif password is None:
+            kdf = {"name": "device"}
+            device_key = self.device_key(create=True)
         else:
             kdf = dict(crypto.DEFAULT_KDF)
             if not use_secret_key:
                 kdf["secretKey"] = False
-        kek = crypto.derive_kek(password, secret_key, salt, kdf, jace_key)
+        kek = crypto.derive_kek(password, secret_key, salt, kdf, jace_key, device_key)
         self._file_meta = {
             "format": FORMAT,
             "account": account if account is not None else self._file_meta.get("account"),
@@ -187,11 +200,16 @@ class Vault:
             if self.key_mode() == "password" and not self.verify_password(current or ""):
                 raise VaultError("That master password is wrong.")
             if mode == "password":
-                if not password or len(password) < 10:
-                    raise VaultError("Use at least 10 characters for your master password.")
+                if not password:
+                    raise VaultError("Enter a master password.")
                 self._wrap(password, None, use_secret_key=False)
             elif mode == "jace":
+                if not jace_key:
+                    raise VaultError("Sign in with Jace first.")
                 self._wrap(None, None, jace_key=jace_key)
+                self.update_device(secretKey=None)
+            elif mode == "device":
+                self._wrap(None, None)
                 self.update_device(secretKey=None)
             else:
                 raise VaultError("Unknown unlock method.")
@@ -220,7 +238,7 @@ class Vault:
             sk = (secret_key or self.device().get("secretKey")) if uses_sk else None
             if uses_sk and not sk:
                 raise VaultError("Enter your Secret Key (it's on your Emergency Kit).")
-            kek = crypto.derive_kek(password, sk, crypto.b64d(f["salt"]), f["kdf"], jace_key)
+            kek = crypto.derive_kek(password, sk, crypto.b64d(f["salt"]), f["kdf"], jace_key, self.device_key())
             key = crypto.open_sealed(kek, f["wrappedKey"], AAD_KEY)
             data = crypto.open_json(key, f["data"], AAD_DATA)
             self._key, self._data = key, data
@@ -242,13 +260,13 @@ class Vault:
             sk = self.device().get("secretKey") if self.file_uses_secret_key(f) else None
             kek = crypto.derive_kek(current, sk, crypto.b64d(f["salt"]), f["kdf"])
             crypto.open_sealed(kek, f["wrappedKey"], AAD_KEY)  # raises if wrong
-            if len(new) < 10:
-                raise VaultError("Use at least 10 characters for your master password.")
+            if not new:
+                raise VaultError("Enter a master password.")
             self._wrap(new, sk)
             self.save()
 
     def verify_password(self, password: str) -> bool:
-        if self.key_mode() == "jace":
+        if self.key_mode() in ("jace", "device"):
             return self.unlocked  # no master password: being signed in and unlocked is the check
         try:
             f = self.read_file()
@@ -434,6 +452,71 @@ class Vault:
             target["updatedAt"] = now_iso()
             self.save()
             return target
+
+    def move_passkey(self, from_id: str, credential_id: str, to_id: str) -> dict:
+        """Links a passkey to another login (it moves there with its private key)."""
+        with self.lock_:
+            src, dst = self.get_item(from_id), self.get_item(to_id)
+            if dst.get("type") != "login":
+                raise VaultError("Passkeys can only be linked to logins.")
+            pk = next((p for p in src.get("fields", {}).get("passkeys", []) if p.get("credentialId") == credential_id), None)
+            if pk is None:
+                raise VaultError("That passkey isn't on this login.")
+            if src is not dst:
+                src["fields"]["passkeys"] = [p for p in src["fields"]["passkeys"] if p is not pk]
+                if not src["fields"]["passkeys"]:
+                    src["fields"].pop("passkeys")
+                dst.setdefault("fields", {}).setdefault("passkeys", []).append(pk)
+                url = "https://" + pk.get("rpId", "")
+                from .security import matches
+                if pk.get("rpId") and not matches(dst, url):
+                    dst["fields"].setdefault("urls", []).append(url)
+                if not dst["fields"].get("username") and pk.get("userName"):
+                    dst["fields"]["username"] = pk["userName"]
+                src["updatedAt"] = dst["updatedAt"] = now_iso()
+                self.save()
+            return dst
+
+    def import_items(self, items: list, vault_id: str | None = None) -> dict:
+        """Adds imported items. A login that brings passkeys is linked to the login you already have
+        for that site and account (passkeys added, missing details filled in) instead of duplicated."""
+        from .security import site
+        out = {"imported": 0, "passkeys": 0, "linked": 0}
+        with self.lock_:
+            for it in items[:20000]:
+                if not isinstance(it, dict) or it.get("type") not in ITEM_TYPES:
+                    continue
+                fields = dict(it.get("fields") or {})
+                pks = [p for p in fields.pop("passkeys", None) or [] if isinstance(p, dict) and all(
+                    isinstance(p.get(k), str) and p.get(k) for k in ("credentialId", "rpId", "privateKey"))]
+                if it["type"] == "login" and pks:
+                    sites = {site(u) for u in fields.get("urls") or []} | {site("https://" + p["rpId"]) for p in pks}
+                    user = fields.get("username", "")
+                    target = next((i for i in self.visible_items() if i["type"] == "login"
+                                   and sites & {site(u) for u in i.get("fields", {}).get("urls") or []}
+                                   and (not user or not i["fields"].get("username") or i["fields"]["username"] == user)), None)
+                    if target:
+                        t = self.get_item(target["id"])
+                        f = t.setdefault("fields", {})
+                        have = {p.get("credentialId") for p in f.get("passkeys", [])}
+                        new = [p for p in pks if p["credentialId"] not in have]
+                        f.setdefault("passkeys", []).extend(new)
+                        if not f["passkeys"]:
+                            f.pop("passkeys")
+                        for k in ("username", "password", "totp", "notes"):
+                            if not f.get(k) and fields.get(k):
+                                f[k] = fields[k]
+                        f["urls"] = list(dict.fromkeys((f.get("urls") or []) + (fields.get("urls") or [])))
+                        t["updatedAt"] = now_iso()
+                        out["passkeys"] += len(new)
+                        out["linked"] += len(new)
+                        continue
+                    fields["passkeys"] = pks
+                    out["passkeys"] += len(pks)
+                self.create_item({**it, "fields": fields, "vaultId": vault_id})
+                out["imported"] += 1
+            self.save()
+        return out
 
     def touch_passkey(self, item: dict, passkey: dict) -> None:
         with self.lock_:

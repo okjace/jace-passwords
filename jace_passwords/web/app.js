@@ -165,14 +165,16 @@ async function renderOnboarding(app) {
       <p class="muted">It's the one password you'll need to remember. Jace never sees it, so nobody can reset it for you.</p>
       <label class="lbl">Master password</label>
       <input class="input" type="password" id="pw1" autocomplete="new-password" autofocus>
-      <div id="pw1m">${meterHTML({ score: 0, label: "At least 10 characters", bits: 0 })}</div>
+      <div id="pw1m">${meterHTML({ score: 0, label: "Any length works; longer is safer", bits: 0 })}</div>
       <label class="lbl">Confirm</label>
       <input class="input" type="password" id="pw2" autocomplete="new-password">
       <div class="error" id="err"></div>
       <button class="btn primary block" style="margin-top:12px">Create vault</button>
-      ${st.jace ? `<div class="or">or</div>
-      <button type="button" class="btn block" id="skip-pw">Skip: unlock with my Jace account</button>
-      <p class="small muted" style="margin-top:6px">No password to remember: you unlock by being signed in to Jace. ⚠ Not end-to-end encrypted: whoever controls the Jace Passwords server, or gets into your Jace account, could open your vault. You can add a master password later in Settings.</p>` : ""}
+      <div class="or">or</div>
+      <button type="button" class="btn block" id="skip-pw">${st.jace ? "Skip: unlock with my Jace account" : "Skip: no master password"}</button>
+      <p class="small muted" style="margin-top:6px">${st.jace
+        ? "No password to remember: it opens whenever you're signed in to Jace. ⚠ Not end-to-end encrypted: whoever controls the Jace Passwords server, or gets into your Jace account, could open your vault."
+        : "It opens on this computer without asking. It's still encrypted on disk, but ⚠ anyone who can use this computer can open it."} You can add a master password later in Settings.</p>
       <button type="button" class="btn ghost block" data-a="ob-back" style="margin-top:6px">Back</button>
       <p class="small muted" style="margin-top:14px">🔐 ${st.jace
         ? `Your vault is encrypted with AES-256 using a key made from this password, and synced to <b>@${h(st.jace.username)}</b>'s Jace account as unreadable ciphertext. On a new device you just sign in with Jace and enter this password.`
@@ -180,14 +182,14 @@ async function renderOnboarding(app) {
     </form></div>`;
     $("#skip-pw")?.addEventListener("click", async (e) => {
       e.target.disabled = true; e.target.textContent = "Creating…";
-      try { await POST("setup", { skipPassword: true }); S.onboard = null; await refreshState(); toast("Your vault is ready 🎉 It unlocks with your Jace account"); }
-      catch (x) { $("#err").textContent = x.message; e.target.disabled = false; e.target.textContent = "Skip: unlock with my Jace account"; }
+      try { await POST("setup", { skipPassword: true }); S.onboard = null; await refreshState(); toast(st.jace ? "Your vault is ready 🎉 It opens with your Jace account" : "Your vault is ready 🎉 It opens without a password on this computer"); }
+      catch (x) { $("#err").textContent = x.message; e.target.disabled = false; e.target.textContent = st.jace ? "Skip: unlock with my Jace account" : "Skip: no master password"; }
     });
     $("#pw1").addEventListener("input", async (e) => { $("#pw1m").innerHTML = meterHTML(await POST("strength", { password: e.target.value })); });
     $("#f-create").addEventListener("submit", async (e) => {
       e.preventDefault();
       const a = $("#pw1").value, b = $("#pw2").value;
-      if (a.length < 10) return ($("#err").textContent = "Use at least 10 characters.");
+      if (!a) return ($("#err").textContent = "Enter a master password, or skip it below.");
       if (a !== b) return ($("#err").textContent = "Those passwords don't match.");
       e.submitter.disabled = true; e.submitter.textContent = "Encrypting…";
       try {
@@ -275,17 +277,17 @@ function renderLocked(app) {
       <h1 style="margin-top:12px">${who ? `Welcome back, ${h(who.name || who.username)}` : "Unlock Jace Passwords"}</h1>
       ${who ? `<p class="muted">@${h(who.username)}</p>` : ""}
     </div>
-    ${st.keyMode === "jace" ? `<p class="muted" style="text-align:center">This vault unlocks with your Jace account.</p>` : `<label class="lbl">Master password</label>
+    ${st.keyMode === "device" ? `<p class="muted" style="text-align:center">This vault opens without a password on this computer.</p>` : st.keyMode === "jace" ? `<p class="muted" style="text-align:center">This vault unlocks with your Jace account.</p>` : `<label class="lbl">Master password</label>
     <input class="input" type="password" id="pw" autocomplete="current-password" autofocus>`}
     ${!st.needsSecretKey ? "" : `<label class="lbl">Secret Key</label><input class="input mono" id="sk" placeholder="J1-…" autocomplete="off" spellcheck="false">`}
     <div class="error" id="err"></div>
-    <button class="btn primary block" style="margin-top:10px" ${st.keyMode === "jace" ? "autofocus" : ""}>${st.keyMode === "jace" ? "Unlock with Jace" : "Unlock"}</button>
+    <button class="btn primary block" style="margin-top:10px" ${st.keyMode !== "password" ? "autofocus" : ""}>${st.keyMode === "jace" ? "Unlock with Jace" : st.keyMode === "device" ? "Open" : "Unlock"}</button>
   </form></div>`;
   $("#f-unlock").addEventListener("submit", async (e) => {
     e.preventDefault();
     e.submitter.disabled = true; e.submitter.textContent = "Unlocking…";
     try { await POST("unlock", { password: $("#pw")?.value || "", secretKey: $("#sk")?.value }); await refreshState(); }
-    catch (x) { $("#err").textContent = x.message; e.submitter.disabled = false; e.submitter.textContent = st.keyMode === "jace" ? "Unlock with Jace" : "Unlock"; $("#pw")?.select(); }
+    catch (x) { $("#err").textContent = x.message; e.submitter.disabled = false; e.submitter.textContent = st.keyMode === "jace" ? "Unlock with Jace" : st.keyMode === "device" ? "Open" : "Unlock"; $("#pw")?.select(); }
   });
 }
 
@@ -414,6 +416,18 @@ function detailHTML(i) {
   }
   if (S.breach?.breached?.[i.id]) flags.push(`<span class="pill bad">Found in ${S.breach.breached[i.id].toLocaleString()} breaches</span>`);
   if (w?.expiring?.includes(i.id)) flags.push(`<span class="pill warn">Expiring soon</span>`);
+  const wd = w?.details?.[i.id];
+  if (w?.compromised?.includes(i.id)) flags.push(`<span class="pill bad">Compromised website</span>`);
+  if (w?.passkeysAvailable?.includes(i.id)) flags.push(`<span class="pill ok">Passkeys available</span>`);
+  const wtNotes = [];
+  if (wd?.breach) wtNotes.push(`⚠ <b>${h(wd.breach.name)}</b> had a data breach (${h(wd.breach.date)}, ${Number(wd.breach.count).toLocaleString()} accounts, passwords included) after this password was set. Change it. <span class="muted">Have I Been Pwned</span>`);
+  else if (wd?.pastBreach) wtNotes.push(`<b>${h(wd.pastBreach.name)}</b> had a data breach on ${h(wd.pastBreach.date)}, before this password was set. <span class="muted">Have I Been Pwned</span>`);
+  if (wd?.tfa && w.missing2fa.includes(i.id)) {
+    const names = { totp: "authenticator app", sms: "text message", email: "email", call: "phone call", u2f: "security key", "custom-software": "the site's own app", "custom-hardware": "the site's own device" };
+    wtNotes.push(`🔢 Two-factor available: ${wd.tfa.methods.map((m) => names[m] || m).join(", ")}.${wd.tfa.methods.includes("totp") ? " Add its setup key to this login to get codes here." : ""}${wd.tfa.doc ? ` <a href="${h(wd.tfa.doc)}" target="_blank" rel="noopener noreferrer">How to turn it on ↗</a>` : ""} <span class="muted">2fa.directory</span>`);
+  }
+  if (wd?.passkeys && w.passkeysAvailable.includes(i.id)) wtNotes.push(`🗝️ This site supports passkeys${wd.passkeys.passwordless ? " for signing in without a password" : " as a second step"}. Create one and Jace Passwords saves it here.${wd.passkeys.doc ? ` <a href="${h(wd.passkeys.doc)}" target="_blank" rel="noopener noreferrer">How ↗</a>` : ""} <span class="muted">passkeys.directory</span>`);
+  const wtPanel = wtNotes.length ? `<div class="panel small">${wtNotes.map((n) => `<p style="margin:4px 0">${n}</p>`).join("")}</div>` : "";
 
   let body = "";
   if (i.type === "login") {
@@ -429,7 +443,7 @@ function detailHTML(i) {
     if ((f.passkeys || []).length) body += `<div class="fields">${f.passkeys.map((p) => `<div class="field"><span style="font-size:20px">🗝️</span><div class="body"><div class="k">Passkey</div>
       <div class="v">${h(p.userName || p.userDisplayName || f.username || "")} <span class="muted">· ${h(p.rpId)}</span></div>
       <div class="small muted">Created ${fmtDate(p.createdAt)}${p.lastUsedAt ? ` · Last used ${fmtDate(p.lastUsedAt)}` : ""}</div></div>
-      ${i.deletedAt ? "" : `<div class="tools"><button class="btn ghost icon" data-a="del-passkey" data-id="${h(i.id)}" data-cred="${h(p.credentialId)}" title="Delete passkey">🗑️</button></div>`}</div>`).join("")}</div>`;
+      ${i.deletedAt ? "" : `<div class="tools"><button class="btn ghost icon" data-a="link-passkey" data-id="${h(i.id)}" data-cred="${h(p.credentialId)}" title="Link to another login">🔗</button><button class="btn ghost icon" data-a="del-passkey" data-id="${h(i.id)}" data-cred="${h(p.credentialId)}" title="Delete passkey">🗑️</button></div>`}</div>`).join("")}</div>`;
     if ((f.urls || []).length) body += `<div class="fields">${f.urls.map((u, n) => `<div class="field"><div class="body"><div class="k">${n ? "Website" : "Website"}</div><div class="v">${h(u)}</div></div>
       <div class="tools"><a class="btn ghost icon" href="${h(/^https?:\/\//i.test(u) ? u : "https://" + u)}" target="_blank" rel="noopener noreferrer" title="Open">↗</a><button class="btn ghost icon" data-a="copy" data-val="${h(u)}" data-what="Website copied">⧉</button></div></div>`).join("")}</div>`;
   } else if (i.type === "card") {
@@ -471,6 +485,7 @@ function detailHTML(i) {
       <div class="actions">${trash ? `<button class="btn" data-a="restore" data-id="${h(i.id)}">Restore</button><button class="btn danger" data-a="purge" data-id="${h(i.id)}">Delete forever</button>`
         : `<button class="btn ghost icon" data-a="fav" data-id="${h(i.id)}" title="Favorite">${i.favorite ? "⭐" : "☆"}</button><button class="btn" data-a="edit" data-id="${h(i.id)}">Edit</button><button class="btn ghost icon" data-a="trash" data-id="${h(i.id)}" title="Move to Trash">🗑️</button>`}</div></div>
     ${flags.length ? `<div class="row" style="flex-wrap:wrap;margin-bottom:14px">${flags.join("")}</div>` : ""}
+    ${wtPanel}
     ${body}
     ${(i.tags || []).length ? `<div class="row" style="flex-wrap:wrap;margin-bottom:14px">${i.tags.map((t) => `<button class="pill" style="border:0;cursor:pointer" data-a="tag" data-t="${h(t)}"># ${h(t)}</button>`).join("")}</div>` : ""}
     <p class="small muted">Created ${fmtDate(i.createdAt)} · Edited ${fmtDate(i.updatedAt)}${i.lastUsedAt ? ` · Last filled ${fmtDate(i.lastUsedAt)}` : ""}</p>
@@ -741,7 +756,10 @@ async function renderWatchtower(el) {
       ${stat("missing2fa", "2FA available", "Sites that support 2FA codes", "var(--warn)")}
       ${stat("insecure", "Unsecured websites", "http:// instead of https://", "var(--warn)")}
       ${stat("expiring", "Expiring cards", "Expired or expiring soon", "var(--warn)")}
+      ${stat("compromised", "Compromised websites", "Breached since you set the password", "var(--bad)")}
+      ${stat("passkeysAvailable", "Passkeys available", "Sites you could use a passkey on", "var(--accent)")}
     </div>
+    <p class="small muted">Sources: <a href="https://2fa.directory" target="_blank" rel="noopener">2fa.directory</a>${w.sources?.tfa ? "" : " (offline)"} · <a href="https://passkeys.directory" target="_blank" rel="noopener">passkeys.directory</a>${w.sources?.passkeys ? "" : " (offline)"} · <a href="https://haveibeenpwned.com" target="_blank" rel="noopener">Have I Been Pwned</a>${w.sources?.breaches ? "" : " (offline)"}. Only public lists are downloaded; nothing about your vault leaves this device.</p>
     <div class="panel"><h3>Breached passwords</h3>
       <p class="muted small">Checks your passwords against Have I Been Pwned's list of 900M+ leaked passwords. Only the first 5 characters of each password's SHA-1 hash leave this computer (k-anonymity) — never the password.</p>
       ${breached !== null ? `<p><b style="color:${breached ? "var(--bad)" : "var(--ok)"}">${breached ? `${breached} login${breached > 1 ? "s use" : " uses"} a breached password` : "✓ None of your passwords are in known breaches"}</b> <span class="small muted">· checked ${fmtDate(S.breach.checkedAt)}</span></p>
@@ -763,10 +781,12 @@ async function renderSettings(el) {
   <div class="panel"><h3>Security</h3>
     <label class="lbl">Auto-lock after</label><select class="input" data-s="autoLockMinutes">${[[1, "1 minute"], [5, "5 minutes"], [10, "10 minutes"], [30, "30 minutes"], [60, "1 hour"], [240, "4 hours"], [0, "Never"]].map(([v, l]) => `<option value="${v}" ${+s.autoLockMinutes === v ? "selected" : ""}>${l}</option>`).join("")}</select>
     <label class="lbl">Clear copied items from clipboard after</label><select class="input" data-s="clipboardClearSeconds">${[[15, "15 seconds"], [30, "30 seconds"], [60, "1 minute"], [120, "2 minutes"], [0, "Never"]].map(([v, l]) => `<option value="${v}" ${+s.clipboardClearSeconds === v ? "selected" : ""}>${l}</option>`).join("")}</select>
-    ${st.keyMode === "jace" ? `<label class="lbl">Unlock</label>
-    <p class="muted small">No master password: this vault unlocks with your Jace account. ⚠ It's encrypted, but not end-to-end: the Jace Passwords server holds the key for your account. Add a master password to make it end-to-end encrypted.</p>
+    ${st.keyMode !== "password" ? `<label class="lbl">Unlock</label>
+    <p class="muted small">${st.keyMode === "jace"
+      ? "No master password: this vault unlocks with your Jace account. ⚠ It's encrypted, but not end-to-end: the Jace Passwords server holds the key for your account."
+      : "No master password: this vault opens on this computer without asking. ⚠ It's encrypted on disk, but anyone who can use this computer can open it."} Add a master password to protect it.</p>
     <button class="btn primary" data-a="change-pw">Add a master password</button>` : `
-    <div class="row" style="margin-top:14px;flex-wrap:wrap"><button class="btn" data-a="change-pw">Change master password</button>${st.usesSecretKey ? `<button class="btn" data-a="show-kit">View Emergency Kit</button>` : ""}${st.jace ? `<button class="btn" data-a="use-jace-unlock">Unlock with Jace instead</button>` : ""}</div>
+    <div class="row" style="margin-top:14px;flex-wrap:wrap"><button class="btn" data-a="change-pw">Change master password</button>${st.usesSecretKey ? `<button class="btn" data-a="show-kit">View Emergency Kit</button>` : ""}${st.jace ? `<button class="btn" data-a="use-jace-unlock">Unlock with Jace instead</button>` : `<button class="btn" data-a="use-device-unlock">Open without a password</button>`}</div>
     <label class="lbl">Secret Key</label>
     ${st.usesSecretKey
       ? `<p class="muted small">New devices need your Secret Key as well as your master password.${st.jace ? " Since your vault is linked to Jace, you can stop using it: then signing in with Jace and your master password is enough." : ""}</p>${st.jace ? `<button class="btn" data-a="secret-key" data-use="0">Stop using a Secret Key</button>` : ""}`
@@ -786,8 +806,15 @@ async function renderSettings(el) {
     <input class="input" type="email" data-s="aliasBase" value="${h(s.aliasBase || "")}" placeholder="you@gmail.com"></div>
   <div class="panel"><h3>Appearance</h3><div class="seg" id="theme">${["system", "light", "dark"].map((t) => `<button data-a="theme" data-t="${t}" class="${(s.theme || "system") === t ? "on" : ""}">${t[0].toUpperCase() + t.slice(1)}</button>`).join("")}</div></div>
   <div class="panel"><h3>Import & export</h3>
-    <p class="muted small">Import a CSV from Chrome, Firefox, Safari, Edge, 1Password, Bitwarden, Proton Pass, LastPass or Dashlane.</p>
-    <label class="btn">📥 Import CSV<input type="file" accept=".csv,text/csv" id="imp" hidden></label>
+    <p class="muted small">Move your logins, 2FA codes, cards and notes here from another password manager, and your <b>passkeys</b> too where that app can export them:</p>
+    <ul class="muted small" style="margin:6px 0 10px;padding-left:18px">
+      <li><b>Bitwarden</b>: File → Export vault → <i>.json</i> (not encrypted). Passkeys included.</li>
+      <li><b>Apple Passwords, Bitwarden and others</b>: a Credential Exchange (CXF) <i>.json</i>. Passkeys included.</li>
+      <li><b>1Password</b>: File → Export → <i>.1pux</i>. 1Password doesn't export passkeys.</li>
+      <li><b>Proton Pass</b>: Settings → Export (zip, no passphrase). Proton's passkeys can't be moved.</li>
+      <li><b>Chrome, Firefox, Safari, Edge, LastPass, Dashlane</b>: export passwords as <i>.csv</i>.</li>
+    </ul>
+    <label class="btn">📥 Import a file<input type="file" accept=".csv,text/csv,.json,application/json,.zip,.1pux" id="imp" hidden></label>
     <button class="btn" data-a="export" data-f="json">📦 Encrypted backup</button><button class="btn" data-a="export" data-f="csv">📄 Export CSV (unencrypted)</button></div>
   <p class="small muted">Jace Passwords ${h(st.version)} · AES-256-GCM · ${st.keyMode === "jace" ? "unlocked with Jace" : st.usesSecretKey ? "scrypt + Secret Key" : "scrypt"}</p>`;
   $$("[data-s]", el).forEach((c) => c.addEventListener("change", async () => {
@@ -797,14 +824,22 @@ async function renderSettings(el) {
   }));
   $("#imp", el).addEventListener("change", async (e) => {
     const file = e.target.files[0];
+    e.target.value = "";
     if (!file) return;
-    const r = await POST("import", { csv: await file.text(), vaultId: S.data.vaults[0].id }).catch((x) => toast(x.message));
-    if (r) { await reload(); toast(`Imported ${r.imported} items`); }
+    toast("Importing…");
+    try {
+      const vaultId = S.view.startsWith("vault:") ? S.view.slice(6) : S.data.vaults[0].id;
+      const parsed = await window.JPImport.readExport(file);
+      const r = parsed.csv !== undefined ? await POST("import", { csv: parsed.csv, vaultId }) : await POST("import-items", { items: parsed.items, vaultId });
+      await reload();
+      const skipped = parsed.stats?.skippedPasskeys || 0;
+      toast(`Imported ${r.imported} item${r.imported === 1 ? "" : "s"}${r.passkeys ? ` and ${r.passkeys} passkey${r.passkeys > 1 ? "s" : ""}` : ""}${r.linked ? ` (${r.linked} linked to logins you already had)` : ""}${skipped ? `. ${skipped} passkey${skipped > 1 ? "s" : ""} couldn't be moved` : ""}`);
+    } catch (x) { toast(x.message); }
   });
 }
 
 function passwordPrompt(title, desc, cb) {
-  if (S.server?.keyMode === "jace") return cb("").catch((x) => toast(x.message)); // no master password to ask for
+  if (S.server?.keyMode && S.server.keyMode !== "password") return cb("").catch((x) => toast(x.message)); // no master password to ask for
   modal(`<form class="modal" style="max-width:420px" id="pp"><div class="mh"><h3>${h(title)}</h3><button type="button" class="btn ghost icon" data-a="close">✕</button></div>
     <div class="mb"><p class="muted">${h(desc)}</p><input class="input" type="password" id="pp-pw" placeholder="Master password" autocomplete="current-password"><div class="error" id="err"></div></div>
     <div class="mf"><button type="button" class="btn" data-a="close">Cancel</button><button class="btn primary">Continue</button></div></form>`, (root) => {
@@ -906,6 +941,33 @@ const ACTIONS = {
       toast("Alias created");
     } catch (x) { toast(x.message); }
   },
+  "link-passkey"(el) {
+    const from = S.data.items.find((x) => x.id === el.dataset.id);
+    const pk = (from.fields.passkeys || []).find((p) => p.credentialId === el.dataset.cred);
+    const host = (u) => { try { return new URL(/:\/\//.test(u) ? u : "https://" + u).hostname.split(".").slice(-2).join("."); } catch { return ""; } };
+    const rpSite = pk.rpId.split(".").slice(-2).join(".");
+    const logins = liveItems().filter((i) => i.type === "login" && i.id !== from.id)
+      .map((i) => ({ i, same: (i.fields?.urls || []).some((u) => host(u) === rpSite) }))
+      .sort((a, b) => b.same - a.same || a.i.title.localeCompare(b.i.title));
+    modal(`<div class="modal"><div class="mh"><h3>🔗 Link passkey to a login</h3><button class="btn ghost icon" data-a="close">✕</button></div>
+      <div class="mb"><p class="muted small">The passkey for <b>${h(pk.userName || pk.rpId)}</b> on <b>${h(pk.rpId)}</b> moves to the login you pick, so it lives with that account's password and 2FA code.</p>
+      <input class="input" id="lp-q" placeholder="Search logins" autocomplete="off">
+      <div id="lp-list" style="margin-top:8px;max-height:50vh;overflow:auto"></div></div></div>`, (root) => {
+      const draw = () => {
+        const q = $("#lp-q", root).value.toLowerCase();
+        const rows = logins.filter(({ i }) => [i.title, i.fields?.username, ...(i.fields?.urls || [])].join(" ").toLowerCase().includes(q));
+        $("#lp-list", root).innerHTML = rows.map(({ i, same }) => `<div class="li" data-a="link-passkey-to" data-to="${h(i.id)}" data-from="${h(from.id)}" data-cred="${h(pk.credentialId)}">
+          ${tileFor(i)}<div class="meta"><div class="t">${h(i.title)} ${same ? `<span class="pill ok">same site</span>` : ""}</div><div class="s">${h(subtitle(i))}</div></div></div>`).join("")
+          || `<div class="empty">No other logins${q ? " match" : " yet"}.</div>`;
+      };
+      $("#lp-q", root).addEventListener("input", draw);
+      draw();
+    });
+  },
+  async "link-passkey-to"(el) {
+    const r = await POST("passkey-move", { fromId: el.dataset.from, credentialId: el.dataset.cred, toId: el.dataset.to });
+    closeModal(); S.selected = r.id; await reload(); toast("Passkey linked");
+  },
   async "del-passkey"(el) {
     if (!confirm("Delete this passkey? You won't be able to sign in with it any more — add another sign-in method on the site first.")) return;
     const i = S.data.items.find((x) => x.id === el.dataset.id);
@@ -925,7 +987,7 @@ const ACTIONS = {
   async unpair(el) { await api("DELETE", "devices/" + el.dataset.id); render(); },
   async theme(el) { localStorageSet("theme", el.dataset.t); await api("PUT", "settings", { theme: el.dataset.t }); await reload(); },
   "change-pw"() {
-    const adding = S.server?.keyMode === "jace";
+    const adding = !!S.server?.keyMode && S.server.keyMode !== "password";
     modal(`<form class="modal" style="max-width:440px" id="cp"><div class="mh"><h3>${adding ? "Add a master password" : "Change master password"}</h3><button type="button" class="btn ghost icon" data-a="close">✕</button></div>
       <div class="mb">${adding ? `<p class="muted small">Your vault becomes end-to-end encrypted: only this password opens it, and nobody can reset it for you.</p>` : inp("cp-cur", "Current master password", "", 'type="password" autocomplete="current-password"')}${inp("cp-new", "New master password", "", 'type="password" autocomplete="new-password"')}<div id="cp-m"></div>${inp("cp-new2", "Confirm new password", "", 'type="password" autocomplete="new-password"')}<div class="error" id="err"></div></div>
       <div class="mf"><button type="button" class="btn" data-a="close">Cancel</button><button class="btn primary">Change password</button></div></form>`, (root) => {
@@ -936,6 +998,13 @@ const ACTIONS = {
         try { await POST("password", { current: $("#cp-cur", root)?.value || "", new: $("#cp-new", root).value }); closeModal(); await reload(); toast(adding ? "Master password added: your vault is end-to-end encrypted" : "Master password changed"); }
         catch (x) { $("#err", root).textContent = x.message; }
       });
+    });
+  },
+  "use-device-unlock"() {
+    if (!confirm("Open this vault without a master password?\n\nIt stays encrypted on disk, but anyone who can use this computer will be able to open it.")) return;
+    passwordPrompt("Open without a password", "Enter your current master password to switch.", async (pw) => {
+      await POST("key-mode", { mode: "device", current: pw });
+      closeModal(); await reload(); toast("Your vault now opens without a password on this computer");
     });
   },
   "use-jace-unlock"() {

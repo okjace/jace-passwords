@@ -12,7 +12,7 @@
   const D = globalThis.JP_DATA;
   const enc = new TextEncoder(), dec = new TextDecoder();
   const subtle = crypto.subtle;
-  const VERSION = "1.1.0";
+  const VERSION = "1.2.0";
   const FORMAT = "jace-passwords/1";
   const AAD_KEY = enc.encode("jace-passwords:key"), AAD_DATA = enc.encode("jace-passwords:data");
   const KDF = { name: "scrypt", n: 131072, r: 8, p: 1 };
@@ -107,7 +107,12 @@
     }
     return raw;
   }
-  async function deriveKek(password, secretKey, salt, kdf, jaceKey = null) {
+  async function deriveKek(password, secretKey, salt, kdf, jaceKey = null, deviceKey = null) {
+    if (kdf.name === "device") { // no master password, not linked: opens on this device (crypto.py)
+      if (!deviceKey) throw new ApiError("This vault opens only on the device that made it.");
+      const k = await subtle.importKey("raw", deviceKey, "HKDF", false, ["deriveBits"]);
+      return new Uint8Array(await subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt, info: enc.encode("jace-passwords device unlock v1") }, k, 256));
+    }
     if (kdf.name === "jace") { // no master password: unlocked with the Jace account (crypto.py)
       if (!jaceKey) throw new ApiError("Sign in with Jace to unlock this vault.");
       const k = await subtle.importKey("raw", jaceKey, "HKDF", false, ["deriveBits"]);
@@ -150,8 +155,13 @@
     return { vaults: [{ id: newId(), name: "Personal", icon: "🔐", color: "#3ddc84", travelSafe: true, createdAt: t, updatedAt: t }],
       items: [], settings: { ...DEFAULT_SETTINGS }, generatorHistory: [], createdAt: t };
   }
-  const usesSecretKey = (f) => { const k = f?.kdf || {}; return k.name !== "jace" && k.secretKey !== false; };
-  const keyMode = (f) => ((f?.kdf || {}).name === "jace" ? "jace" : "password");
+  const usesSecretKey = (f) => { const k = f?.kdf || {}; return k.name !== "jace" && k.name !== "device" && k.secretKey !== false; };
+  const keyMode = (f) => { const n = (f?.kdf || {}).name; return n === "jace" || n === "device" ? n : "password"; };
+  const deviceKey = (create = false) => {
+    let k = device().deviceKey;
+    if (!k && create) { k = b64e(rand(32)); updateDevice({ deviceKey: k }); }
+    return k ? b64d(k) : null;
+  };
   async function jaceKey() {
     const r = await jace("GET", "vault-key");
     if (r.status !== 200) throw new ApiError(r.body.error_description || "Couldn't get your vault key. Sign in with Jace again.");
@@ -162,8 +172,8 @@
   async function wrap(password, secretKey, account, useSk = usesSecretKey(V.meta), jk = null) {
     const salt = rand(16);
     const acct = account !== undefined ? account : V.meta.account ?? null;
-    const kdf = password === null ? { name: "jace", sub: acct?.id || "" } : useSk ? { ...KDF } : { ...KDF, secretKey: false };
-    const kek = await deriveKek(password, secretKey, salt, kdf, jk);
+    const kdf = password === null ? (jk ? { name: "jace", sub: acct?.id || "" } : { name: "device" }) : useSk ? { ...KDF } : { ...KDF, secretKey: false };
+    const kek = await deriveKek(password, secretKey, salt, kdf, jk, kdf.name === "device" ? deviceKey(true) : null);
     V.meta = { format: FORMAT, account: acct, kdf,
       salt: b64e(salt), wrappedKey: await seal(kek, V.key, AAD_KEY), keyChangedAt: nowIso() };
   }
@@ -186,7 +196,7 @@
       if (u && f.kdf.sub && u.id !== f.kdf.sub) throw new ApiError("This vault belongs to another Jace account. Sign in with that one.");
       jk = await jaceKey();
     }
-    const kek = await deriveKek(password, sk, b64d(f.salt), f.kdf, jk);
+    const kek = await deriveKek(password, sk, b64d(f.salt), f.kdf, jk, deviceKey());
     const key = await openSealed(kek, f.wrappedKey, AAD_KEY);
     V.data = JSON.parse(dec.decode(await openSealed(key, f.data, AAD_DATA)));
     V.key = key;
@@ -198,7 +208,7 @@
   function lock() { V.key = null; V.data = null; }
 
   async function verifyPassword(pw) {
-    if (keyMode(store.get("vault")) === "jace") return !!V.data; // no master password to check
+    if (keyMode(store.get("vault")) !== "password") return !!V.data; // no master password to check
     try { const f = store.get("vault"); const kek = await deriveKek(pw, device().secretKey, b64d(f.salt), f.kdf); await openSealed(kek, f.wrappedKey, AAD_KEY); return true; }
     catch { return false; }
   }
@@ -306,6 +316,7 @@
     syncing = (async () => {
       Object.assign(sync, { status: "syncing", error: null });
       try {
+        if (keyMode(V.meta) === "device") { await wrap(null, null, undefined, false, await jaceKey()); await save(); }
         for (let tries = 0; ; tries++) {
           const [remote, version] = await pull();
           if (remote) {
@@ -443,11 +454,37 @@
     if (parts.length >= 3 && D.multiPartTlds.includes(parts.slice(-2).join("."))) return parts.slice(-3).join(".");
     return parts.slice(-2).join(".");
   }
-  function report(items) {
+  // Established public data for Watchtower (security.py): 2fa.directory, the passkeys directory and
+  // Have I Been Pwned's breached websites (through the Jace Passwords site: its API has no CORS).
+  async function watchtowerData() {
+    const cached = store.get("wtcache");
+    if (cached && cached.at > Date.now() - 864e5 && cached.tfa && cached.passkeys && cached.breaches) return cached;
+    const get = async (url) => { const r = await fetch(url); if (!r.ok) throw new Error(r.status); return r.json(); };
+    const fresh = { at: Date.now() };
+    try {
+      const raw = await get("https://api.2fa.directory/v3/tfa.json");
+      fresh.tfa = {};
+      for (const [, e] of raw) { const info = { methods: e.tfa || [], doc: e.documentation || "" }; for (const d of [e.domain, ...(e["additional-domains"] || [])]) if (d) fresh.tfa[d.toLowerCase()] = info; }
+    } catch { if (cached?.tfa) fresh.tfa = cached.tfa; }
+    try {
+      const raw = await get("https://passkeys-api.2fa.directory/v1/supported.json");
+      fresh.passkeys = Object.fromEntries(Object.entries(raw).map(([d, v]) => [d.toLowerCase(), { passwordless: !!v.passwordless, mfa: !!v.mfa, doc: v.documentation || "" }]));
+    } catch { if (cached?.passkeys) fresh.passkeys = cached.passkeys; }
+    try {
+      const r = await jace("GET", "breaches");
+      if (r.status === 200) fresh.breaches = r.body; else throw new Error(r.status);
+    } catch { if (cached?.breaches) fresh.breaches = cached.breaches; }
+    try { store.set("wtcache", fresh); } catch { /* too big for this browser's storage: just don't cache */ }
+    return fresh;
+  }
+  const lookup = (table, url) => (table ? table[hostname(url)] || table[site(url)] || null : null);
+  function report(items, data = {}) {
+    const tfa = data.tfa || {}, pkSites = data.passkeys || {}, breaches = data.breaches || {};
     const logins = items.filter((i) => i.type === "login" && !i.deletedAt);
     const byPw = {};
     for (const i of logins) { const pw = i.fields?.password; if (pw) (byPw[pw] ||= []).push(i.id); }
-    const r = { weak: [], reused: [], old: [], missing2fa: [], insecure: [], expiring: [] };
+    const r = { weak: [], reused: [], old: [], missing2fa: [], insecure: [], expiring: [], compromised: [], passkeysAvailable: [] };
+    const details = {};
     const yearAgo = Date.now() - 365 * 864e5;
     for (const i of logins) {
       const f = i.fields || {}, pw = f.password || "";
@@ -455,8 +492,20 @@
       if (pw && byPw[pw].length > 1) r.reused.push(i.id);
       if (pw && Date.parse(i.passwordChangedAt || i.createdAt) < yearAgo) r.old.push(i.id);
       const urls = f.urls || [];
-      if (!f.totp && !f.signInWith && !f.passkeys?.length && urls.some((u) => D.twoFaSites.includes(site(u)))) r.missing2fa.push(i.id);
+      const info = {};
+      const t = urls.map((u) => lookup(tfa, u)).find(Boolean);
+      if (t) info.tfa = t;
+      if (!f.totp && !f.signInWith && !f.passkeys?.length && ((t && t.methods.length) || (!data.tfa && urls.some((u) => D.twoFaSites.includes(site(u)))))) r.missing2fa.push(i.id);
+      const pk = urls.map((u) => lookup(pkSites, u)).find(Boolean);
+      if (pk) { info.passkeys = pk; if (!f.passkeys?.length && !f.signInWith) r.passkeysAvailable.push(i.id); }
+      const changed = (i.passwordChangedAt || i.createdAt || "").slice(0, 10);
+      const hits = urls.flatMap((u) => lookup(breaches, u) || []);
+      const newest = (list) => list.reduce((a, b) => ((b.added || b.date) > (a.added || a.date) ? b : a));
+      const newer = hits.filter((b) => b.passwords && pw && (!changed || ((b.added || "").slice(0, 10) || b.date) >= changed));
+      if (newer.length) { r.compromised.push(i.id); info.breach = newest(newer); }
+      else if (hits.length) info.pastBreach = newest(hits);
       if (urls.some((u) => /^http:\/\//i.test(u.trim()) && !["localhost", "127.0.0.1"].includes(hostname(u)))) r.insecure.push(i.id);
+      if (Object.keys(info).length) details[i.id] = info;
     }
     const now = new Date();
     for (const c of items) {
@@ -466,9 +515,12 @@
       if (y < 100) y += 2000;
       if ((y - now.getFullYear()) * 12 + (m - (now.getMonth() + 1)) <= 2) r.expiring.push(c.id);
     }
-    const issues = new Set([...r.weak, ...r.reused, ...r.old, ...r.missing2fa, ...r.insecure]).size;
-    const score = !logins.length ? 100 : Math.max(0, Math.round(100 - (100 * issues / logins.length) * 0.8 - r.expiring.length * 2));
-    return { score, total: logins.length, ...r };
+    // Vulnerabilities count fully; recommendations (old password, 2FA you could turn on) a quarter.
+    const vulnerable = new Set([...r.weak, ...r.reused, ...r.compromised, ...r.insecure]);
+    const advice = new Set([...r.old, ...r.missing2fa].filter((id) => !vulnerable.has(id)));
+    const penalty = logins.length ? (vulnerable.size + 0.25 * advice.size) / logins.length : 0;
+    const score = !logins.length ? 100 : Math.max(0, Math.round(100 - 100 * penalty * 0.8 - r.expiring.length * 2));
+    return { score, total: logins.length, ...r, details, sources: { tfa: !!data.tfa, passkeys: !!data.passkeys, breaches: !!data.breaches } };
   }
   async function pwned(pw) {
     const h = [...new Uint8Array(await subtle.digest("SHA-1", enc.encode(pw)))].map((b) => b.toString(16).padStart(2, "0")).join("").toUpperCase();
@@ -525,7 +577,15 @@
   }
 
   // ---------- the API the app window calls (server.py's /api/*), answered in the page ----------
+  let autoOpened = false;
+  async function autoOpen() {
+    if (autoOpened || V.data || !exists()) return;
+    autoOpened = true;
+    const mode = keyMode(store.get("vault"));
+    if (mode === "device" || (mode === "jace" && (await me()))) { try { await unlock(null, null); scheduleSync(100); } catch { /* lock screen has a button */ } }
+  }
   async function state() {
+    await autoOpen();
     const st = { app: "Jace Passwords", version: VERSION, web: !!env.web, extension: !!env.extension, setup: exists(), locked: !V.data, hasSecretKey: !!device().secretKey, keyMode: exists() ? keyMode(store.get("vault")) : null,
       usesSecretKey: exists() ? usesSecretKey(store.get("vault")) : null,
       needsSecretKey: exists() && usesSecretKey(store.get("vault")) && !device().secretKey,
@@ -556,11 +616,10 @@
         break;
       case "setup": {
         if (exists()) throw new ApiError("A vault already exists in this browser.");
-        if (body.skipPassword) { // no master password: unlocked with the Jace account
+        if (body.skipPassword) { // no master password: the Jace key if signed in, else this device's
           const u = await me();
-          if (!u) throw new ApiError("Sign in with Jace first.");
           V.key = rand(32); V.data = emptyData();
-          await wrap(null, null, { id: u.id, username: u.username, name: u.name, picture: u.picture }, false, await jaceKey());
+          await wrap(null, null, u ? { id: u.id, username: u.username, name: u.name, picture: u.picture } : null, false, u ? await jaceKey() : null);
           updateDevice({ secretKey: null });
           await save(); scheduleSync(100);
           return { secretKey: null };
@@ -573,7 +632,7 @@
           updateDevice({ syncVersion: version });
           return { ok: true };
         }
-        if ((body.password || "").length < 10) throw new ApiError("Use at least 10 characters for your master password.");
+        if (!body.password) throw new ApiError("Enter a master password.");
         const u0 = await me();
         const sk = u0 ? null : newSecretKey(); // linked to Jace: no Secret Key
         V.key = rand(32); V.data = emptyData();
@@ -657,13 +716,62 @@
           }
           return { breached, checkedAt: nowIso() };
         }
-        return report(visible());
+        return report(visible(), await watchtowerData());
       case "alias": {
         const base = String(body.base || settings().aliasBase || "").trim();
         if (!base.includes("@")) throw new ApiError("Set the email your aliases forward to first (Settings → Email aliases).");
         const [user, domain] = base.split("@");
         const tag = String(body.site || "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 20) || [...rand(3)].map((b) => b.toString(16).padStart(2, "0")).join("");
         return { alias: `${user.split("+")[0]}+${tag}.${[...rand(2)].map((b) => b.toString(16).padStart(2, "0")).join("")}@${domain}`, forwardsTo: base };
+      }
+      case "import-items": { // parsed in the app window (import.js); passkeys link to the login you already have
+        const out = { imported: 0, passkeys: 0, linked: 0 };
+        for (const it of (body.items || []).slice(0, 20000)) {
+          if (!it || !ITEM_TYPES.includes(it.type)) continue;
+          const fields = { ...(it.fields || {}) };
+          const pks = (fields.passkeys || []).filter((p) => p && p.credentialId && p.rpId && p.privateKey);
+          delete fields.passkeys;
+          if (it.type === "login" && pks.length) {
+            const sites = new Set([...(fields.urls || []).map(site), ...pks.map((p) => site("https://" + p.rpId))]);
+            const user = fields.username || "";
+            const target = visible().find((i) => i.type === "login" && (i.fields?.urls || []).some((u) => sites.has(site(u)))
+              && (!user || !i.fields?.username || i.fields.username === user));
+            if (target) {
+              const t = getItem(target.id), f = (t.fields ||= {});
+              const have = new Set((f.passkeys || []).map((p) => p.credentialId));
+              const fresh = pks.filter((p) => !have.has(p.credentialId));
+              f.passkeys = [...(f.passkeys || []), ...fresh];
+              if (!f.passkeys.length) delete f.passkeys;
+              for (const k of ["username", "password", "totp", "notes"]) if (!f[k] && fields[k]) f[k] = fields[k];
+              f.urls = [...new Set([...(f.urls || []), ...(fields.urls || [])])];
+              t.updatedAt = nowIso();
+              out.passkeys += fresh.length; out.linked += fresh.length;
+              continue;
+            }
+            fields.passkeys = pks; out.passkeys += pks.length;
+          }
+          createItem({ ...it, fields, vaultId: body.vaultId });
+          out.imported++;
+        }
+        await changed();
+        return out;
+      }
+      case "passkey-move": { // link a passkey to another login
+        const src = getItem(body.fromId || ""), dst = getItem(body.toId || "");
+        if (dst.type !== "login") throw new ApiError("Passkeys can only be linked to logins.");
+        const pk = (src.fields?.passkeys || []).find((p) => p.credentialId === body.credentialId);
+        if (!pk) throw new ApiError("That passkey isn't on this login.");
+        if (src !== dst) {
+          src.fields.passkeys = src.fields.passkeys.filter((p) => p !== pk);
+          if (!src.fields.passkeys.length) delete src.fields.passkeys;
+          (dst.fields ||= {}).passkeys = [...(dst.fields.passkeys || []), pk];
+          const url = "https://" + pk.rpId;
+          if (pk.rpId && !(dst.fields.urls || []).some((u) => site(u) === site(url))) dst.fields.urls = [...(dst.fields.urls || []), url];
+          if (!dst.fields.username && pk.userName) dst.fields.username = pk.userName;
+          src.updatedAt = dst.updatedAt = nowIso();
+          await changed();
+        }
+        return { ok: true, id: dst.id };
       }
       case "import": { const items = importCsv(body.csv || ""); for (const it of items) createItem({ ...it, vaultId: body.vaultId }); await changed(); return { imported: items.length }; }
       case "export":
@@ -673,16 +781,17 @@
       case "key-mode": {
         if (!(await verifyPassword(body.current || ""))) throw new ApiError("That master password is wrong.");
         if (body.mode === "jace") { await wrap(null, null, undefined, false, await jaceKey()); updateDevice({ secretKey: null }); }
+        else if (body.mode === "device") { await wrap(null, null, undefined, false, null); updateDevice({ secretKey: null }); }
         else {
-          if ((body.password || "").length < 10) throw new ApiError("Use at least 10 characters for your master password.");
+          if (!body.password) throw new ApiError("Enter a master password.");
           await wrap(body.password, null, undefined, false);
         }
         await changed(); return { ok: true };
       }
       case "password": {
         if (!(await verifyPassword(body.current || ""))) throw new ApiError("Wrong master password or Secret Key.");
-        if ((body.new || "").length < 10) throw new ApiError("Use at least 10 characters for your master password.");
-        const fromJace = keyMode(V.meta) === "jace";
+        if (!body.new) throw new ApiError("Enter a master password.");
+        const fromJace = keyMode(V.meta) !== "password";
         await wrap(body.new, fromJace ? null : device().secretKey || null, undefined, fromJace ? false : usesSecretKey(V.meta)); await changed(); return { ok: true };
       }
       case "secret-key": {
@@ -814,6 +923,7 @@
 
   async function extApi(route, body = {}) {
     checkAutoLock();
+    if (route === "status") await autoOpen();
     if (route === "status") return { locked: !V.data, setup: exists(), account: await me(), version: VERSION, keyMode: exists() ? keyMode(store.get("vault")) : null };
     if (route === "unlock") { await unlock(body.password || "", null); scheduleSync(100); return { ok: true }; }
     if (route === "lock") { lock(); return { ok: true }; }
@@ -869,7 +979,7 @@
   function checkAutoLock() {
     if (!V.data) return;
     const m = +settings().autoLockMinutes;
-    if (m && Date.now() - V.lastActivity > m * 60000) lock();
+    if (m && keyMode(V.meta) !== "device" && Date.now() - V.lastActivity > m * 60000) lock();
   }
   setInterval(checkAutoLock, 10000);
 

@@ -82,7 +82,18 @@ async function standalone(route, body = {}) {
   }
 }
 
-const lastFilled = {};   // tabId -> { id, site } so the 2FA field can get the right code
+const lastFilled = {};   // tabId -> { id, at } so the 2FA field can get the right code
+// Kept in session storage too: the browser often stops this background between the login page and
+// the 2FA page, which used to forget which login you'd just filled.
+async function rememberFilled(tabId, id) {
+  lastFilled[tabId] = { id, at: Date.now() };
+  if (B.storage.session) await B.storage.session.set({ ["filled:" + tabId]: lastFilled[tabId] });
+}
+async function recallFilled(tabId) {
+  if (lastFilled[tabId]) return lastFilled[tabId];
+  if (!B.storage.session) return null;
+  return (await B.storage.session.get("filled:" + tabId))["filled:" + tabId] || null;
+}
 const pendingSave = {};  // tabId -> { url, username, password, at }
 
 function senderOrigin(sender) {
@@ -163,11 +174,11 @@ async function handle(msg, sender) {
     case "generate": return call("generate", "POST", msg.opts || {});
     case "fill": {
       const r = await call("fill", "POST", { id: msg.id });
-      if (!r.error && r.type === "login" && tabId !== undefined) lastFilled[tabId] = { id: msg.id, at: Date.now() };
+      if (!r.error && r.type === "login" && tabId !== undefined) await rememberFilled(tabId, msg.id);
       return r;
     }
     case "totp-for-tab": {
-      const lf = lastFilled[tabId];
+      const lf = await recallFilled(tabId);
       if (!lf || Date.now() - lf.at > 10 * 60 * 1000) return { error: "none" };
       return call("fill", "POST", { id: lf.id });
     }

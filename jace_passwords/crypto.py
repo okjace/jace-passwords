@@ -54,7 +54,16 @@ def normalize_secret_key(sk: str) -> str:
     return raw
 
 
-def derive_kek(password: str | None, secret_key: str | None, salt: bytes, kdf: dict, jace_key: bytes | None = None) -> bytes:
+def derive_kek(password: str | None, secret_key: str | None, salt: bytes, kdf: dict, jace_key: bytes | None = None,
+               device_key: bytes | None = None) -> bytes:
+    if kdf.get("name") == "device":
+        # No master password and no Jace account: opens on this device without asking. The key
+        # lives in device.json next to the vault, so the vault is encrypted, but anyone who can
+        # use this computer can open it.
+        if not device_key:
+            raise CryptoError("This vault opens only on the device that made it.")
+        return HKDF(algorithm=hashes.SHA256(), length=32, salt=salt,
+                    info=b"jace-passwords device unlock v1").derive(device_key)
     if kdf.get("name") == "jace":
         # No master password: unlocked with your Jace account. jace_key comes from the Jace Passwords
         # server (webapp/api/jace.py) once you're signed in. NOT end-to-end encrypted.

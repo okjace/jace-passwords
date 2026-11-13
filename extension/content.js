@@ -11,13 +11,44 @@
   const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 20 && r.height > 10 && getComputedStyle(el).visibility !== "hidden"; };
   const hint = (el) => [el.name, el.id, el.placeholder, el.getAttribute("aria-label"), el.getAttribute("autocomplete"), el.labels?.[0]?.textContent].join(" ").toLowerCase();
 
+  // 2FA code fields: named plainly ("code", "token", "pin"…), or one-digit boxes in a row.
+  const words = (el) => [el.name, el.id, el.placeholder, el.getAttribute("aria-label"), el.labels?.[0]?.textContent, el.className]
+    .join(" ").replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().replace(/[^a-z0-9]+/g, " ");
+  const OTP_WORDS = /(^| )(otp|totp|2fa|mfa|one time|onetime|verification|verify|authenticator|auth code|authcode|passcode|two factor|twofactor|2 step|2step|security code|token|tfa)( |$)/;
+  const NOT_OTP = /(^| )(cvv|cvc|csc|card|zip|postal|post code|postcode|promo|coupon|discount|gift|referral|invite|phone|mobile|country|area|search|captcha)( |$)/;
+  const shortNumeric = (el) => el.inputMode === "numeric" || el.type === "tel" || el.type === "number" || /\\d|\[0-9\]/.test(el.pattern || "")
+    || (el.maxLength >= 4 && el.maxLength <= 10);
+  const digitBoxes = (el) => {
+    if (el.maxLength !== 1) return [];
+    const scope = el.form || el.closest("div, fieldset, section") || document;
+    return [...scope.querySelectorAll("input")].filter((i) => i.maxLength === 1 && visible(i) && !i.disabled);
+  };
+  function isOtpField(el, ac) {
+    if (ac.includes("one-time-code")) return true;
+    const w = words(el);
+    if (NOT_OTP.test(w) || /cc-|card/.test(ac)) return false;
+    if (OTP_WORDS.test(w)) return true;
+    if (/(^| )(code|pin)( |$)/.test(w) && shortNumeric(el)) return true;
+    return digitBoxes(el).length >= 4; // six one-digit boxes
+  }
+  // Put a code in a 2FA field, or spread it over one-digit boxes.
+  function fillCode(el, code) {
+    const boxes = digitBoxes(el);
+    if (boxes.length >= 4) {
+      const start = Math.max(0, boxes.indexOf(el));
+      [...String(code)].forEach((d, n) => boxes[start + n] && setValue(boxes[start + n], d));
+      return;
+    }
+    setValue(el, code);
+  }
+
   function classify(el) {
     if (!(el instanceof HTMLInputElement) || el.disabled || el.readOnly) return null;
     const type = (el.type || "text").toLowerCase();
     if (!["text", "email", "password", "tel", "number", "search", ""].includes(type)) return null;
     const ac = (el.getAttribute("autocomplete") || "").toLowerCase();
     const h = hint(el);
-    if (ac.includes("one-time-code") || /\b(otp|totp|2fa|mfa|one.?time|verification.?code|authenticator|security.?code)\b/.test(h) && !/cvv|cvc|csc/.test(h)) return "totp";
+    if (isOtpField(el, ac)) return "totp";
     if (ac.startsWith("cc-") || /card.?number|cardnum|cc-?num|ccnumber/.test(h)) {
       if (ac === "cc-number" || /card.?number|cardnum|cc-?num|ccnumber/.test(h)) return "cc-number";
       if (ac === "cc-name") return "cc-name";
@@ -74,13 +105,13 @@
     const scope = anchor?.form || anchor?.closest("form") || document;
     let fields = fieldsIn(scope);
     if (!fields.length && scope !== document) fields = fieldsIn(document);
-    let did = false;
+    let did = false, otpDone = false;
     for (const { el, kind } of fields) {
       let v = null;
       if (data.type === "login") {
         if (kind === "username") v = data.username;
         else if (kind === "password") v = data.password;
-        else if (kind === "totp" && data.totp && !fields.some((f) => f.kind === "password")) v = data.totp;
+        else if (kind === "totp" && data.totp && !otpDone && !fields.some((f) => f.kind === "password")) { fillCode(el, data.totp); otpDone = did = true; continue; }
       } else if (data.type === "card") {
         const y = String(data.expYear || ""), m = String(data.expMonth || "").padStart(2, "0");
         v = { "cc-number": data.number, "cc-name": data.cardholder, "cc-csc": data.cvv, "cc-exp-month": m,
@@ -91,7 +122,7 @@
           "id-address1": data.address1, "id-address2": data.address2, "id-city": data.city, "id-state": data.state, "id-zip": data.zip,
           "id-country": data.country, "id-company": data.company, "id-birthday": data.birthday, "username": data.email }[kind];
       } else if (data.type === "totp") {
-        if (kind === "totp") v = data.code;
+        if (kind === "totp") { fillCode(el, data.code); did = true; break; }
       }
       if (v) { setValue(el, v); did = true; }
     }
@@ -245,7 +276,7 @@
     }
     if (it.dataset.totp && !it.dataset.id) {
       const r = await send({ type: "totp-for-tab" });
-      if (r.totp) setValue(anchor, r.totp);
+      if (r.totp) fillCode(anchor, r.totp);
       else menu.innerHTML = `<div class="msg">No recent login with a 2FA code on this tab.</div>`;
       if (r.totp) hideMenu();
       return;
@@ -253,7 +284,7 @@
     if (it.dataset.sso) { hideMenu(); return; }
     const data = await send({ type: "fill", id: it.dataset.id });
     if (data.error) { menu.innerHTML = `<div class="msg">${esc(data.message)}</div>`; return; }
-    if (it.dataset.totpId) { if (data.totp) setValue(anchor, data.totp); }
+    if (it.dataset.totpId) { if (data.totp) fillCode(anchor, data.totp); }
     else fill(data, anchor);
     hideMenu();
   });
@@ -266,9 +297,11 @@
     if (el === host) return;
     const kind = el instanceof HTMLInputElement ? classify(el) : null;
     if (!kind) { if (!host.contains(el)) { current = null; hideMenu(); placeIcon(); } return; }
+    const first = current?.el !== el;
     current = { el, kind };
     attach();
     placeIcon();
+    if (kind === "totp" && first && !el.value) openMenu(); // offer the code right away
   }, true);
   document.addEventListener("mousedown", (e) => { if (!e.composedPath().includes(host) && e.target !== current?.el) hideMenu(); }, true);
   addEventListener("scroll", placeIcon, true);

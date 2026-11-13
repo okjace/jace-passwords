@@ -112,7 +112,9 @@ class App:
 
     def unlock_vault(self, password=None, secret_key=None):
         v = self.vault
-        if v.key_mode() == "jace":
+        if v.key_mode() == "device":
+            v.unlock(None)
+        elif v.key_mode() == "jace":
             owner = (v.read_file().get("kdf") or {}).get("sub")
             acct = self.public_account()
             if acct and owner and acct["id"] != owner:
@@ -123,9 +125,30 @@ class App:
         self.schedule_sync(0.1)
 
     def auto_sign_in(self):
-        """At startup: on Jace OS, sign in silently if this computer is signed in to Jace."""
-        if not self.jace_account() and jaceos.available():
-            threading.Thread(target=self.sign_in_with_jace_os, daemon=True).start()
+        """At startup: on Jace OS, sign in silently if this computer is signed in to Jace; then open a
+        vault that has no master password."""
+        def run():
+            if not self.jace_account() and jaceos.available():
+                self.sign_in_with_jace_os()
+            self.auto_open()
+        threading.Thread(target=run, daemon=True).start()
+
+    def auto_open(self):
+        v = self.vault
+        if not v.exists() or v.unlocked:
+            return
+        mode = v.key_mode()
+        if mode == "device" or (mode == "jace" and self.jace_account()):
+            try:
+                self.unlock_vault()
+            except Exception:  # noqa: BLE001 - offline etc.: the lock screen has a button
+                pass
+
+    def adopt_jace_key(self):
+        """A device-only vault that starts syncing moves to the Jace key, so your other devices can open it."""
+        v = self.vault
+        if v.unlocked and v.key_mode() == "device" and self.jace_account():
+            v.set_key_mode("jace", jace_key=self.jace_key())
 
     # ---------- sync ----------
     def schedule_sync(self, delay=2.0):
@@ -145,6 +168,7 @@ class App:
             self.sync_state.update(status="syncing", error=None)
             try:
                 token = acct["access_token"]
+                self.adopt_jace_key()
                 for _ in range(4):
                     remote, version = jace.pull(token)
                     if remote:
@@ -175,7 +199,7 @@ class App:
             v = self.vault
             if v.unlocked:
                 minutes = v.settings().get("autoLockMinutes", 10)
-                if minutes and time.time() - v.last_activity > float(minutes) * 60:
+                if minutes and v.key_mode() != "device" and time.time() - v.last_activity > float(minutes) * 60:
                     v.lock()
 
     # ---------- state ----------
@@ -467,10 +491,8 @@ def make_handler(app: App):
                 app.sync_state["version"] = version
                 return {"ok": True}
             # Linked to Jace: no Secret Key (your Jace sign-in guards the synced copy instead).
-            if body.get("skipPassword"):  # no master password: unlocked with the Jace account
-                if not acct:
-                    raise ApiError("Sign in with Jace first.")
-                v.create(None, acct, jace_key=app.jace_key())
+            if body.get("skipPassword"):  # no master password: the Jace key if linked, else this device's
+                v.create(None, acct, jace_key=app.jace_key() if acct else None)
                 app.schedule_sync(0.1)
                 return {"secretKey": None}
             sk = v.create(body.get("password", ""), acct, use_secret_key=acct is None)
@@ -595,7 +617,7 @@ def make_handler(app: App):
                     if checked[pw]:
                         results[i["id"]] = checked[pw]
                 return {"breached": results, "checkedAt": now_iso()}
-            return security.report(v.visible_items())
+            return security.report(v.visible_items(), security.watchtower_data())
 
         if head == "alias":
             base = (body.get("base") or v.settings().get("aliasBase") or "").strip()
@@ -614,6 +636,16 @@ def make_handler(app: App):
             app.after_change()
             return {"imported": len(items)}
 
+        if head == "import-items" and method == "POST":  # parsed in the app window (web/import.js)
+            r = v.import_items(body.get("items") or [], body.get("vaultId"))
+            app.after_change()
+            return r
+
+        if head == "passkey-move" and method == "POST":  # link a passkey to another login
+            it = v.move_passkey(body.get("fromId", ""), body.get("credentialId", ""), body.get("toId", ""))
+            app.after_change()
+            return {"ok": True, "id": it["id"]}
+
         if head == "export":
             if not v.verify_password(body.get("password", "")):
                 raise ApiError("That master password is wrong.", 403)
@@ -631,7 +663,7 @@ def make_handler(app: App):
             return {"ok": True}
 
         if head == "password":
-            if v.key_mode() == "jace":
+            if v.key_mode() in ("jace", "device"):
                 v.set_key_mode("password", password=body.get("new", ""))
             else:
                 v.change_password(body.get("current", ""), body.get("new", ""))
