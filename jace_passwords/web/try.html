@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Try autofill · Jace Passwords</title>
+<link rel="icon" href="/icon.svg">
+<style>
+  :root { --bg: #f4f5f7; --panel: #fff; --line: #dfe2e7; --text: #16181d; --muted: #5d6470; --accent: #1f9d5a; --on-accent: #fff; color-scheme: light; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111317; --panel: #1c1f26; --line: #2a2f38; --text: #e6e8eb; --muted: #8b919c; --accent: #3ddc84; --on-accent: #0c1410; color-scheme: dark; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; display: grid; place-items: center; padding: 24px 16px; }
+  .card { width: 100%; max-width: 420px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 30px; }
+  h1 { font-size: 22px; margin: 0 0 4px; } p { margin: 0 0 18px; color: var(--muted); }
+  label { display: block; font-weight: 600; font-size: 13px; margin: 14px 0 6px; }
+  input { width: 100%; padding: 11px 13px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; }
+  button { width: 100%; margin-top: 20px; padding: 12px; border: 0; border-radius: 10px; background: var(--accent); color: var(--on-accent); font: inherit; font-weight: 700; cursor: pointer; }
+  .note { margin-top: 16px; font-size: 13px; color: var(--muted); } a { color: var(--accent); }
+</style>
+</head>
+<body>
+<form class="card" action="/try" method="get" autocomplete="on">
+  <h1>Try autofill</h1>
+  <p>A practice sign-in page for the Jace Passwords extension. Click the email field and pick a login from the fill list. Nothing you enter here is sent anywhere.</p>
+  <label for="email">Email</label><input id="email" name="email" type="email" autocomplete="username" placeholder="you@example.com">
+  <label for="password">Password</label><input id="password" type="password" autocomplete="current-password" placeholder="Password">
+  <button type="button">Sign in</button>
+  <div class="note">Save a login with the website <b>https://jace-passwords.vercel.app/try</b> to see it here. <a href="/">About Jace Passwords</a></div>
+</form>
+</body>
+</html>
