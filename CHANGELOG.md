@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.0
+
+- **Report a field:** if autofill gets a field wrong (or misses it), pick **Wrong kind of field? Report it** at the bottom of the fill list, or right-click the field → **What is this field?**, and choose what it is: email or username, password, 2FA code, name, address, card number, "nothing to fill here" and more. It applies for you right away and, signed in with Jace, for everyone. Reports are kept by Jace and only name the site and the field, never what's typed in it. The extension downloads everyone's reports as one list, so it never tells anyone which sites you visit.
+- **"No passkeys found":** when a site asks for a passkey and your vault has none for it, Jace Passwords now says so, with **Use another device** to try a phone or security key instead.
+
 ## 1.5.0
 
 - **Email codes without an open inbox tab:** in the extension's popup, **✉ Email codes**, turn on Gmail, Outlook or Proton Mail. Gmail is read from its unread-mail feed (the browser asks you to allow mail.google.com once); Outlook and Proton Mail open your inbox in a background tab for a few seconds, then close it. Uses your existing sign-in in this browser, only when you open a code field's menu. The 2FA menu shows right away and the emailed code drops in when it's found.

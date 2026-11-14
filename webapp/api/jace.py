@@ -212,6 +212,8 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
             return self._breaches()
         if route == "vault-key":
             return self._vault_key()
+        if route == "field-rules":  # everyone's field reports (Jace keeps them), downloaded whole: no per-site lookups
+            return self._field_rules()
         if route == "sync":
             token = self._token()
             if not token:
@@ -321,8 +323,36 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
                           headers={"If-Match": self.headers.get("If-Match", '"0"')})
         self._send(status, r)
 
+    _rules_cache = {"at": 0, "data": None}
+
+    def _field_rules(self):
+        c = handler._rules_cache
+        if not c["data"] or c["at"] < time.time() - 300:
+            status, r = _jace("GET", "/api/oauth/passwords/field-rules")
+            if status == 200 and isinstance(r.get("rules"), dict):
+                c.update(at=time.time(), data=r)
+            elif not c["data"]:
+                return self._send(502, {"error": "unreachable", "rules": {}})
+        return self._send(200, c["data"], headers={"Cache-Control": "public, max-age=300"})
+
     def do_POST(self):  # noqa: N802
         route, _ = self._route()
+        if route == "field-rules":  # report a field: "this is the password / email / … field"
+            if not self._same_site():
+                return self._send(403, {"error": "forbidden"})
+            token = self._token()
+            if not token:
+                return self._send(401, {"error": "signed_out", "error_description": "Sign in with Jace to report fields."})
+            n = int(self.headers.get("Content-Length") or 0)
+            try:
+                body = json.loads(self.rfile.read(min(n, 4096)) or b"{}")
+            except ValueError:
+                return self._send(400, {"error": "invalid_request"})
+            status, r = _jace("POST", "/api/oauth/passwords/field-rules", token=token,
+                              body={k: body.get(k) for k in ("host", "field", "kind")})
+            if status == 200:
+                handler._rules_cache["at"] = 0  # show it in the next download
+            return self._send(status, r)
         if route == "signout" and self._same_site():
             return self._send(200, {"ok": True}, cookies=[self._cookie(TOKEN_COOKIE, "", 0)])
         self._send(404 if route != "signout" else 403, {"error": "not_found"})

@@ -238,6 +238,44 @@ class VaultKeyService(unittest.TestCase):
         srv.shutdown()
 
 
+class FieldReports(unittest.TestCase):
+    def test_field_rules_routes(self):
+        import importlib, sys, threading, urllib.error, urllib.request
+        from http.server import HTTPServer
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "webapp" / "api"))
+        mod = importlib.import_module("jace")
+        stored = {}
+        def fake(method, path, token=None, body=None, **kw):
+            if path != "/api/oauth/passwords/field-rules":
+                return 404, {}
+            if method == "GET":
+                return 200, {"rules": stored}
+            if token != "good":
+                return 401, {"error": "invalid_token"}
+            stored.setdefault(body["host"], {})[body["field"]] = body["kind"]
+            return 200, {"ok": True, **body}
+        mod._jace = fake
+        mod.handler._rules_cache.update(at=0, data=None)
+        srv = HTTPServer(("127.0.0.1", 0), mod.handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{srv.server_port}/api/jace/field-rules"
+        def req(method, headers=None, body=None):
+            data = json.dumps(body).encode() if body is not None else None
+            r = urllib.request.Request(base, data=data, method=method, headers={**(headers or {}), **({"Content-Type": "application/json"} if data else {})})
+            try:
+                with urllib.request.urlopen(r) as resp:
+                    return resp.status, json.loads(resp.read())
+            except urllib.error.HTTPError as e:
+                return e.code, {}
+        report = {"host": "example.com", "field": "name:login", "kind": "username", "extra": "dropped"}
+        self.assertEqual(req("POST", {"Authorization": "Bearer good"}, report)[0], 403)  # needs the header
+        self.assertEqual(req("POST", {"X-Jace-Passwords": "1", "Authorization": "Bearer bad"}, report)[0], 401)
+        self.assertEqual(req("POST", {"X-Jace-Passwords": "1", "Authorization": "Bearer good"}, report)[0], 200)
+        st, body = req("GET")
+        self.assertEqual((st, body["rules"]), (200, {"example.com": {"name:login": "username"}}))
+        srv.shutdown()
+
+
 class OpenWithoutPassword(unittest.TestCase):
     """No master password and no Jace account: the vault opens on this device, still encrypted."""
 

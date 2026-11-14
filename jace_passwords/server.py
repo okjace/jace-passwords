@@ -768,6 +768,12 @@ def make_handler(app: App):
         if route == "lock" and method == "POST":
             v.lock()
             return {"ok": True}
+        if route == "field-report" and method == "POST":  # "this is the password field", for everyone
+            acct = app.jace_account()
+            if not acct:
+                raise ApiError("Sign in with Jace in the app to share field reports.", 401)
+            return jace.report_field(acct["access_token"], str(body.get("host", "")), str(body.get("field", "")),
+                                     str(body.get("kind", "")))
         if route == "generate":
             opts = body if method == "POST" else {}
             pw = generator.generate(opts)

@@ -212,6 +212,52 @@ async function emailCodes(siteName, fromTab) {
   return { codes: codes.sort((a, b) => b.score - a.score).slice(0, 3), checked };
 }
 
+// ---------- field reports: "this is the password field", for everyone ----------
+// Everyone's reports (Jace keeps them) are downloaded as one list now and then, so no site you visit is looked
+// up. Your own reports apply here right away, even before they're shared.
+const FIELD_KINDS = new Set(["username", "password", "new-password", "totp", "cc-number", "cc-name", "cc-csc", "cc-type", "cc-exp",
+  "cc-exp-month", "cc-exp-year", "id-email", "id-phone", "id-name", "id-first", "id-middle", "id-last", "id-company", "id-address1",
+  "id-address2", "id-address3", "id-city", "id-state", "id-zip", "id-country", "id-birthday", "none"]);
+const plainHost = (h) => String(h || "").toLowerCase().replace(/^www\./, "");
+let rulesLoading = null;
+async function sharedRules() {
+  const c = (await B.storage.local.get("fieldRules")).fieldRules;
+  if (c && Date.now() - c.at < 6 * 3600 * 1000) return c.rules;
+  rulesLoading ||= (async () => {
+    try {
+      const r = await fetch(`${WEB}/api/jace/field-rules`);
+      const j = r.ok ? await r.json() : null;
+      if (j && j.rules && typeof j.rules === "object") { await B.storage.local.set({ fieldRules: { at: Date.now(), rules: j.rules } }); return j.rules; }
+    } catch { /* offline: use what we have */ }
+    return c?.rules || {};
+  })().finally(() => { rulesLoading = null; });
+  return rulesLoading;
+}
+async function myRules() { return (await B.storage.local.get("myFieldRules")).myFieldRules || {}; }
+
+async function reportField(msg) {
+  const host = plainHost(msg.host), field = String(msg.field || "").slice(0, 126), kind = String(msg.kind || "");
+  if (!host || !/^(name|id|ac|ph|label):./.test(field) || !FIELD_KINDS.has(kind)) return { error: "invalid", message: "That field can't be reported." };
+  const mine = await myRules();
+  (mine[host] ||= {})[field] = kind;
+  await B.storage.local.set({ myFieldRules: mine });
+  const body = { host, field, kind };
+  try {
+    if (await token()) { // connected to the desktop app: it shares it with its Jace sign-in
+      const r = await call("field-report", "POST", body);
+      return r.error ? { saved: true, shared: false, message: r.message } : { saved: true, shared: true };
+    }
+    const t = await jaceToken();
+    if (!t) return { saved: true, shared: false, message: "Saved for you. Sign in with Jace to share it with everyone." };
+    const r = await fetch(`${WEB}/api/jace/field-rules`, { method: "POST",
+      headers: { Authorization: "Bearer " + t, "X-Jace-Passwords": "1", "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) return { saved: true, shared: false, message: j.error_description || "Saved for you; sharing it didn't work." };
+    await B.storage.local.remove("fieldRules"); // fetch the list again next time
+    return { saved: true, shared: true };
+  } catch { return { saved: true, shared: false, message: "Saved for you; you're offline, so it isn't shared yet." }; }
+}
+
 async function handle(msg, sender) {
   const tabId = sender.tab?.id ?? msg.tabId;
   switch (msg.type) {
@@ -276,6 +322,11 @@ async function handle(msg, sender) {
       const has = await B.permissions.contains({ origins: [MAILBOXES.gmail.match] }).catch(() => false);
       return { sources: await mailSources(), gmailFeed: has };
     }
+    case "field-rules-for": { // the rules for the page's site: everyone's, then yours on top
+      const host = plainHost(msg.host);
+      return { rules: { ...((await sharedRules())[host] || {}), ...((await myRules())[host] || {}) } };
+    }
+    case "field-report": return reportField(msg);
     case "totp-for-tab": {
       const lf = await recallFilled(tabId);
       if (!lf || Date.now() - lf.at > 10 * 60 * 1000) return { error: "none" };
@@ -383,12 +434,15 @@ B.tabs.onRemoved.addListener((id) => { delete lastFilled[id]; delete pendingSave
 B.runtime.onInstalled.addListener(() => {
   B.contextMenus.create({ id: "jp-generate", title: "Generate a strong password", contexts: ["editable"] });
   B.contextMenus.create({ id: "jp-fill", title: "Fill login from Jace Passwords", contexts: ["editable"] });
+  B.contextMenus.create({ id: "jp-report", title: "What is this field? (tell Jace Passwords)", contexts: ["editable"] });
 });
 
 B.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === "jp-generate") {
     const r = await call("generate", "POST", {});
     if (r.password) B.tabs.sendMessage(tab.id, { type: "insert-generated", password: r.password }, { frameId: info.frameId });
+  } else if (info.menuItemId === "jp-report") {
+    B.tabs.sendMessage(tab.id, { type: "report-field" }, { frameId: info.frameId });
   } else if (info.menuItemId === "jp-fill") {
     B.tabs.sendMessage(tab.id, { type: "open-menu" }, { frameId: info.frameId });
   }

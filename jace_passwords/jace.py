@@ -119,6 +119,17 @@ def public_user(u: dict) -> dict:
             "name": u.get("display_name") or u.get("name") or "", "picture": u.get("picture") or ""}
 
 
+def report_field(token: str, host: str, field: str, kind: str) -> dict:
+    """Shares a field report ("this is the password field") with everyone, through Jace."""
+    status, r = _request("POST", f"{JACE_URL}/api/oauth/passwords/field-rules", token=token,
+                         body={"host": host, "field": field, "kind": kind})
+    if status == 401:
+        raise JaceError("Your Jace sign-in expired. Sign in again.")
+    if status != 200:
+        raise JaceError(r.get("error_description") or f"Couldn't send the report ({status}).")
+    return r
+
+
 def pull(token: str) -> tuple[dict | None, int]:
     """(vault file, version) from Jace, or (None, 0) if nothing's synced yet."""
     status, r = _request("GET", f"{JACE_URL}/api/oauth/sync/{SYNC_COLLECTION}", token=token)

@@ -58,7 +58,33 @@
   };
   const optionWords = (sel) => [...sel.options].slice(0, 40).map((o) => o.text.toLowerCase()).join(" ");
 
+  // How a field is named in field reports: stable for everyone who visits the page.
+  const randomish = (s) => /\d{4,}|[0-9a-f]{10,}|:r[0-9a-z]+:|^(input|field|mui|react|ember|ext-gen)[-_]?\d+$/i.test(s);
+  function fieldKey(el) {
+    const clean = (s) => String(s || "").trim().toLowerCase().replace(/\s+/g, " ").slice(0, 120);
+    const ac = (el.getAttribute("autocomplete") || "").toLowerCase();
+    if (el.name && !randomish(el.name)) return "name:" + clean(el.name);
+    if (el.id && !randomish(el.id)) return "id:" + clean(el.id);
+    if (ac && !["on", "off", "nope", "false"].includes(ac)) return "ac:" + clean(ac);
+    if (el.placeholder) return "ph:" + clean(el.placeholder);
+    const label = el.labels?.[0]?.textContent || el.getAttribute("aria-label");
+    return label ? "label:" + clean(label) : null;
+  }
+  let siteRules = {}; // fieldKey -> kind, from field reports (yours and everyone's)
+  send({ type: "field-rules-for", host: location.hostname }).then((r) => { if (r && r.rules) siteRules = r.rules; });
+
   function classify(el) {
+    const ruled = ruledKind(el);
+    if (ruled !== undefined) return ruled;
+    return guessKind(el);
+  }
+  function ruledKind(el) {
+    if (!(el instanceof HTMLInputElement || el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement) || el.disabled || el.readOnly) return undefined;
+    if (el instanceof HTMLInputElement && ["hidden", "submit", "button", "checkbox", "file", "image", "reset", "range", "color"].includes(el.type)) return undefined;
+    const key = fieldKey(el), k = key && siteRules[key];
+    return k ? (k === "none" ? null : k) : undefined;
+  }
+  function guessKind(el) {
     const isSelect = el instanceof HTMLSelectElement, isArea = el instanceof HTMLTextAreaElement;
     const isInput = el instanceof HTMLInputElement;
     const type = isInput ? (el.type || "text").toLowerCase() : "";
@@ -429,13 +455,51 @@
     if (group === "identity" || group === "login") {
       (m.identities || []).forEach((p) => (html += `<button class="it" data-id="${esc(p.id)}"><span class="tile" style="background:#e8743b">🪪</span><span class="m"><div class="t">${esc(p.title)}</div><div class="muted">${esc(p.name || p.email)}</div></span></button>`));
     }
+    if (fieldKey(current.el)) html += `<button class="it" data-report="1" style="padding:6px 8px"><span class="m"><div class="muted">Wrong kind of field? Report it</div></span></button>`;
     menu.innerHTML = html;
     placeMenu();
   }
 
+  // "What is this field?": your answer applies here right away and, signed in with Jace, for everyone.
+  const REPORT_KINDS = [["username", "Email or username (to sign in)"], ["password", "Password"], ["new-password", "New password (sign up / change)"],
+    ["totp", "2FA or verification code"], ["id-email", "Email (contact)"], ["id-phone", "Phone"], ["id-name", "Full name"], ["id-first", "First name"],
+    ["id-last", "Last name"], ["id-address1", "Street address"], ["id-address2", "Address line 2"], ["id-city", "City"], ["id-state", "State or province"],
+    ["id-zip", "ZIP or postal code"], ["id-country", "Country"], ["id-birthday", "Birthday"], ["id-company", "Company"], ["cc-number", "Card number"],
+    ["cc-name", "Name on card"], ["cc-exp", "Card expiry (MM/YY)"], ["cc-exp-month", "Card expiry month"], ["cc-exp-year", "Card expiry year"],
+    ["cc-csc", "Card security code (CVC)"], ["none", "Nothing to fill here"]];
+  function openReport(el) {
+    const key = el && fieldKey(el);
+    attach();
+    current = { el, kind: classify(el) || "username" };
+    menu.style.display = "block";
+    if (!key) { menu.innerHTML = `<div class="hd">${ICON} Jace Passwords</div><div class="msg">This field has no name Jace Passwords can remember, so it can't be reported.</div>`; placeMenu(); return; }
+    const now = classify(el);
+    menu.innerHTML = `<div class="hd">${ICON} What is this field?</div>` + REPORT_KINDS.map(([k, label]) =>
+      `<button class="it" data-kind="${k}" style="padding:6px 8px"><span class="m"><div class="t" style="font-weight:${k === now || (k === "none" && !now) ? 800 : 500}">${k === now || (k === "none" && !now) ? "✓ " : ""}${esc(label)}</div></span></button>`).join("");
+    placeMenu();
+    menu.querySelector(".it")?.focus();
+  }
+  let lastRightClicked = null;
+  document.addEventListener("contextmenu", (e) => { lastRightClicked = e.composedPath()[0]; }, true);
+
   menu.addEventListener("click", async (e) => {
     const it = e.target.closest(".it");
     if (!it || !current) return;
+    if (it.dataset.report) return openReport(current.el);
+    if (it.dataset.kind) {
+      const el = current.el, field = fieldKey(el), kind = it.dataset.kind;
+      siteRules[field] = kind;
+      menu.innerHTML = `<div class="msg">Saving…</div>`;
+      const r = await send({ type: "field-report", host: location.hostname, field, kind });
+      const label = (REPORT_KINDS.find(([k]) => k === kind) || [])[1] || kind;
+      menu.innerHTML = `<div class="hd">${ICON} Thanks!</div><div class="msg" style="white-space:normal">This field is now <b>${esc(label)}</b>${r.shared ? " for everyone." : "."}${r.message && !r.shared ? `<br><span style="font-size:12px">${esc(r.message)}</span>` : ""}</div>`;
+      placeMenu();
+      const k = classify(el);
+      current = k ? { el, kind: k } : null;
+      placeIcon();
+      setTimeout(hideMenu, r.shared ? 1800 : 3500);
+      return;
+    }
     if (it.dataset.pk !== undefined && conditional) {
       const c = conditional;
       conditional = null;
@@ -558,6 +622,9 @@
         const scope = el.form || document;
         [...scope.querySelectorAll("input[type=password]")].filter((p) => p !== el && classify(p) === "new-password").forEach((p) => setValue(p, msg.password));
       }
+    } else if (msg.type === "report-field") {
+      const el = lastRightClicked;
+      if (el instanceof HTMLInputElement || el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement) openReport(el);
     } else if (msg.type === "open-menu") {
       const el = document.activeElement;
       if (el instanceof HTMLInputElement) { current = { el, kind: classify(el) || "username" }; openMenu(); }
@@ -733,7 +800,21 @@
     }
     if (!(await ready(id))) return reply(id, { fallback: true });
     const list = await send({ type: "passkey-list", req });
-    if (!Array.isArray(list) || !list.length) return reply(id, { fallback: true });
+    if (!Array.isArray(list) || !list.length) { // say so, rather than silently handing over to the browser
+      dialog(id, `<h3>No passkeys found</h3>
+        <p class="muted" style="white-space:normal">Jace Passwords doesn't have a passkey for ${req.allow?.length ? "this account on " : ""}<b>${esc(req.rpId)}</b>${req.allow?.length ? "" : " yet"}. Sign in another way, or use a passkey on another device.</p>
+        <div class="row"><button class="btn sec" data-a="other">Use another device</button><button class="btn" data-a="no">OK</button></div>`,
+      (w, close) => {
+        w.querySelector("[data-a=no]").focus();
+        w.addEventListener("click", (e) => {
+          const a = e.target.dataset?.a;
+          if (!a) return;
+          close();
+          reply(id, a === "other" ? { fallback: true } : { error: "NotAllowedError", message: "No passkeys found." });
+        });
+      });
+      return;
+    }
     dialog(id, `<h3>Sign in to ${esc(req.rpId)} with a passkey</h3><div class="list">${list.map((p, n) =>
       `<button class="it" data-n="${n}">${tile(p.title)}<span class="m"><div class="t">${esc(p.userName || p.userDisplayName || p.title)}</div><div class="muted">${esc(p.title)}</div></span></button>`).join("")}</div>
       <div class="row"><button class="btn sec" data-a="other">Use another device</button><button class="btn sec" data-a="no">Cancel</button></div>`,
