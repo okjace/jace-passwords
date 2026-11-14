@@ -599,16 +599,28 @@
     };
     // the message you have open (Proton shows it in a same-origin frame)
     const bodies = [...document.querySelectorAll(".a3s, [aria-label='Message body'], div[role='document'], [data-testid='message-content:body'], .message-content")].filter(shown);
-    let frames = 0, readable = 0;
+    let frames = 0, readable = 0, shadows = 0;
     for (const f of document.querySelectorAll("iframe")) {
-      if (!shown(f)) continue;
       frames++;
-      try { const b = f.contentDocument?.body; if (b) { bodies.push(b); readable++; } } catch { /* other site's frame */ }
+      try { const b = f.contentDocument?.body; if (b && txt(b)) { bodies.push(b); readable++; } } catch { /* other site's frame */ }
+    }
+    for (const el of document.querySelectorAll("[data-testid*='message'], [class*='message'], article, main *")) {
+      if (el.shadowRoot) { shadows++; const t = el.shadowRoot.textContent || ""; if (t.trim()) bodies.push({ innerText: t }); }
     }
     const subject = txt(document.querySelector("h2.hP, [data-testid='message-header-expanded:subject'], [data-testid='conversation-header:subject'], [role='heading'][aria-level='2']"));
     bodies.slice(-3).forEach((b) => add(txt(b), subject || "Open message", 0, true));
     // the newest messages in the list
     const rows = mailRows().slice(0, 8);
+    // Nothing found in a message area: the rest of the page's text, outside the message list (wherever the
+    // service shows an opened message). Still only near words like "code".
+    let pageChars = 0;
+    if (!out.length && bodies.length === 0) {
+      const rest = [...document.querySelectorAll("main, [role='main'], .view-column-detail, [data-testid*='message-view'], [data-shortcut-target='message-container']")]
+        .filter((el) => !rows.some((r) => el.contains(r)));
+      const text = (rest.length ? rest : [document.body]).map((el) => txt(el)).join("\n");
+      pageChars = text.length;
+      add(rows.length && !rest.length ? text.replace(rows.map((r) => txt(r)).join("\n"), "") : text, subject || "Open message", 0, true);
+    }
     rows.forEach((r, n) => {
       const unread = r.classList.contains("zE") || /unread/i.test(r.className + " " + (r.getAttribute("aria-label") || ""));
       const label = txt(r.querySelector(".bog, [data-testid='message-row:subject'], [title]")) || txt(r).split("\n").slice(0, 2).join(" · ");
@@ -617,7 +629,8 @@
     const best = {};
     for (const c of out) if (!best[c.code] || best[c.code].score < c.score) best[c.code] = c;
     return { codes: Object.values(best).sort((a, b) => b.score - a.score).slice(0, 3), rows: rows.length + bodies.length, host: location.hostname,
-      seen: { list: rows.length, bodies: bodies.length, frames, readable, bodyChars: bodies.reduce((n, b) => n + txt(b).length, 0) } };
+      seen: { list: rows.length, bodies: bodies.length, frames, readable, shadows, pageChars, hidden: document.visibilityState === "hidden",
+        path: location.pathname.split("/").length, bodyChars: bodies.reduce((n, b) => n + txt(b).length, 0) } };
   }
   if (MAIL[location.hostname] && window === window.top) {
     B.runtime.onMessage.addListener((msg, _sender, reply) => {
@@ -625,8 +638,19 @@
       // services whose list shows no preview of the text (Proton Mail), so its code can be read.
       if (msg.type === "email-codes-open-newest") {
         const first = mailRows()[0];
-        if (first) first.click();
-        return reply({ opened: !!first });
+        if (!first) return reply({ opened: false });
+        const before = location.href;
+        const id = first.getAttribute("data-element-id") || first.querySelector("[data-element-id]")?.getAttribute("data-element-id");
+        for (const t of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+          first.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window, button: 0 }));
+        }
+        setTimeout(() => {
+          if (location.href === before && id) { // the click didn't open it: go to the message's address
+            const parts = location.pathname.split("/").filter(Boolean); // e.g. u/0/inbox
+            location.assign("/" + parts.slice(0, 3).join("/") + "/" + encodeURIComponent(id));
+          }
+        }, 1200);
+        return reply({ opened: true, id: !!id });
       }
       if (msg.type !== "email-codes-scan") return;
       try { reply(scanMail(msg.siteName || "")); } catch { reply({ codes: [], rows: 0 }); }

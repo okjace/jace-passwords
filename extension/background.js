@@ -180,7 +180,7 @@ async function backgroundInbox(key, siteName, trace = () => {}) {
   const tab = await B.tabs.create({ url: MAILBOXES[key].inbox, active: false }).catch(() => null);
   if (!tab) { trace("Couldn't open a background tab."); return null; }
   trace(`Opened ${MAILBOXES[key].name} in a background tab.`);
-  const seen = (r) => r?.seen ? `${r.seen.list} messages in the list, ${r.seen.bodies} open message(s), ${r.seen.frames} frame(s) (${r.seen.readable} readable), ${r.seen.bodyChars} characters of message text` : "no answer from the page yet";
+  const seen = (r) => r?.seen ? `${r.seen.list} messages in the list, ${r.seen.bodies} open message(s), ${r.seen.frames} frame(s) (${r.seen.readable} readable), ${r.seen.shadows ?? 0} shadow part(s), ${r.seen.bodyChars} characters of message text, ${r.seen.pageChars ?? 0} characters of other page text, address depth ${r.seen.path ?? "?"}, tab ${r.seen.hidden ? "hidden" : "visible"}` : "no answer from the page yet";
   try {
     const wait = () => new Promise((res) => setTimeout(res, 1000));
     let loaded = false;
@@ -196,9 +196,9 @@ async function backgroundInbox(key, siteName, trace = () => {}) {
     // open the newest message in this background tab and read it. Never done in a tab you have open.
     const opened = await withTimeout(B.tabs.sendMessage(tab.id, { type: "email-codes-open-newest" }, { frameId: 0 }), 800);
     if (!opened || !opened.opened) { trace("Couldn't open the newest message."); return []; }
-    trace("No code in the list, so opened the newest message.");
+    trace(`No code in the list, so opened the newest message (${opened.id ? "it has a message address" : "no message address found"}).`);
     let last = null;
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 10; i++) {
       await wait();
       const r = (last = await scanTab(tab.id, siteName));
       if (r && r.codes.length) { trace(`Found ${r.codes.map((c) => c.code).join(", ")} in the message (${seen(r)}).`); return r.codes; }
@@ -216,7 +216,7 @@ async function emailCodes(siteName, fromTab, trace = () => {}) {
   // 1. inboxes already open (any webmail tab answers; others don't)
   const open = (await Promise.all(tabs.filter((t) => t.id !== fromTab && !t.discarded).map((t) => scanTab(t.id, siteName)))).filter((a) => a && a.codes);
   let codes = open.flatMap((a) => a.codes);
-  trace(open.length ? `Open inbox tabs: ${open.map((a) => `${a.host} (${a.codes.length ? "code " + a.codes.map((c) => c.code).join(", ") : "no code"}; ${a.seen ? a.seen.list + " in list, " + a.seen.readable + "/" + a.seen.frames + " frames readable" : ""})`).join("; ")}.` : "No inbox open in a tab.");
+  trace(open.length ? `Open inbox tabs: ${open.map((a) => `${a.host} (${a.codes.length ? "code " + a.codes.map((c) => c.code).join(", ") : "no code"}; ${a.seen ? `${a.seen.list} in list, ${a.seen.bodies} open message(s), ${a.seen.readable}/${a.seen.frames} frames readable, ${a.seen.bodyChars} chars of message text, ${a.seen.pageChars} chars of other page text` : ""})`).join("; ")}.` : "No inbox open in a tab.");
   const openHosts = new Set(open.map((a) => MAIL_HOSTS[a.host]).filter(Boolean)); // inboxes that answered
   // 2./3. the services you turned on, without an open tab
   if (!codes.length) {

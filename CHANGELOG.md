@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.9
+
+- **Email codes from Proton Mail, take two:** if clicking the newest message in the background tab doesn't open it, the extension goes to the message's own address. It reads the opened message wherever Proton shows it (frames, shadow parts, or the page's main area). Test now reports more detail.
+
 ## 1.6.8
 
 - **Email codes: Test now.** In the extension's toolbar button, ✉ Email codes → **Test now** checks the inboxes you turned on and lists every step (inbox loaded, messages seen, newest message opened and readable, code found), so it's clear why a code isn't found. It shows counts only, never your email text.
