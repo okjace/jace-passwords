@@ -9,7 +9,9 @@ const ev = () => ({ addListener() {} });
 window.chrome = {
   storage: { local: mem(), session: mem() },
   runtime: { onMessage: ev(), onInstalled: ev() },
-  tabs: { onRemoved: ev(), create() {}, sendMessage: async () => {} },
+  tabs: { onRemoved: ev(), create() {}, sendMessage: async (id, msg) => (id === 99 && msg.type === "email-codes-scan" ? { codes: [{ code: "482913", provider: "Gmail", from: "[GitHub] Verify", score: 4 }], rows: 3, host: "mail.google.com" } : undefined),
+    query: async () => [{ id: 7 }, { id: 99 }], remove: async () => {} },
+  permissions: { contains: async () => false, request: async () => false },
   contextMenus: { onClicked: ev(), create() {} },
   commands: { onCommand: ev() },
   identity: {
@@ -28,6 +30,7 @@ window.fetch = (url, opts) => realFetch(String(url).replace("https://jace-passwo
 </script>
 <script src="/jace_passwords/web/words.js"></script>
 <script src="/jace_passwords/web/webvault.js"></script>
+<script src="/extension/mailcodes.js"></script>
 <script src="/extension/background.js"></script>
 <script>
 (async () => {
@@ -86,6 +89,8 @@ window.fetch = (url, opts) => realFetch(String(url).replace("https://jace-passwo
     step("13 sync", (await engine.syncNow()).status);
     step("14 Python reads what the extension synced", await realFetch("/verify").then((r) => r.json()));
     step("15 session survives a background restart", !!(await chrome.storage.session.get("jpSession")).jpSession?.key);
+    step("15i email code from an open inbox tab", await handle({ type: "email-codes" }, { ...tab, tab: { id: 7, url: "https://github.com/login" } }));
+    step("15j popup can't be asked by a page for mail settings", (await handle({ type: "mail-settings", set: { gmail: true } }, tab)).error);
     // remember the master password on this browser
     await engine.api("POST", "key-mode", { mode: "password", password: "pw-ext-1", current: "" });
     step("15a wrong password not remembered", (await handle({ type: "standalone-remember", on: true, password: "nope" }, popup)).message);

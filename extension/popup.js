@@ -94,7 +94,7 @@ async function renderMain(mode = currentMode) {
   const main = $("#main");
   const solo = mode === "standalone";
   main.innerHTML = `<div class="tabs">${[["site", "This site"], ["search", "Search"], ["gen", "Generator"]].map(([k, l]) => `<button data-tab="${k}" class="${tabName === k ? "on" : ""}">${l}</button>`).join("")}</div><div id="body"></div>
-    <footer><a id="open">Open Jace Passwords ↗</a><a id="forget" class="muted hidden" title="Ask for the master password again on this browser">Forget password</a><a id="unpair" class="muted">${solo ? "Sign out" : "Disconnect"}</a></footer>`;
+    <footer><a id="open">Open Jace Passwords ↗</a><a id="mail-set" class="muted" title="Sign-in codes from your email">✉ Email codes</a><a id="forget" class="muted hidden" title="Ask for the master password again on this browser">Forget password</a><a id="unpair" class="muted">${solo ? "Sign out" : "Disconnect"}</a></footer>`;
   if (solo) {
     send({ type: "standalone-info" }).then((info) => {
       if (!info.remembered || !$("#forget")) return;
@@ -104,6 +104,7 @@ async function renderMain(mode = currentMode) {
   }
   main.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => { tabName = b.dataset.tab; renderMain(); }));
   $("#open").addEventListener("click", () => send({ type: solo ? "open-web" : "open-app" }));
+  $("#mail-set").addEventListener("click", () => renderMail(main));
   $("#unpair").addEventListener("click", async () => { await send({ type: solo ? "jace-signout" : "unpair" }); start(); });
   const body = $("#body");
   if (tabName === "gen") return renderGen(body);
@@ -146,6 +147,28 @@ function list(el, items = [], empty = `<p class="muted center">No matches.</p>`)
   }));
 }
 
+// Sign-in codes from email: which services to check when their tab isn't open.
+async function renderMail(main) {
+  const st = await send({ type: "mail-settings" });
+  const rows = [["gmail", "Gmail", "Read from Gmail's unread-mail feed with your Gmail sign-in in this browser. The browser asks you to allow mail.google.com once."],
+    ["outlook", "Outlook.com", "Your inbox opens in a background tab for a few seconds, then closes."],
+    ["outlookWork", "Outlook (work or school)", "Same, for Microsoft 365 accounts."],
+    ["proton", "Proton Mail", "Same: a background tab for a few seconds."]];
+  main.innerHTML = `<div style="padding:4px 2px"><p><b>✉ Codes from your email</b></p>
+    <p class="muted">When a site emails you a sign-in code, the 2FA menu on that site offers it. An inbox open in a tab always works; turn on the ones to check when their tab is closed. You need to be signed in to them in this browser. Only checked when you open that menu, and nothing leaves this browser.</p>
+    ${rows.map(([k, name, how]) => `<label class="mrow"><input type="checkbox" data-k="${k}" ${st.sources?.[k] ? "checked" : ""}><span><b>${name}</b><br><span class="muted">${how}</span></span></label>`).join("")}
+    <div class="err" id="err"></div><button class="btn" id="mail-done" style="margin-top:8px">Done</button></div>`;
+  main.querySelectorAll("[data-k]").forEach((c) => c.addEventListener("change", async () => {
+    const k = c.dataset.k;
+    if (k === "gmail" && c.checked) { // must be asked right here, while you're clicking
+      const ok = await B.permissions.request({ origins: ["https://mail.google.com/*"] }).catch(() => false);
+      if (!ok) $("#err").textContent = "Without mail.google.com access, Gmail is read in a background tab instead.";
+    }
+    await send({ type: "mail-settings", set: { [k]: c.checked } });
+  }));
+  $("#mail-done").addEventListener("click", () => renderMain());
+}
+
 async function renderGen(body) {
   let opts = { type: "random", length: 20 };
   const draw = async () => {
@@ -168,7 +191,8 @@ $("#lock").addEventListener("click", async () => { await send({ type: "lock" });
 // Brave only do that for Web Store installs, so a loaded copy says when there's a newer version.
 (async () => {
   const m = B.runtime.getManifest();
-  if (m.browser_specific_settings?.gecko || /Firefox\//.test(navigator.userAgent)) return;
+  // update_url: installed from the Chrome Web Store, which updates it by itself.
+  if (m.browser_specific_settings?.gecko || m.update_url || /Firefox\//.test(navigator.userAgent)) return;
   const r = await send({ type: "latest-version" });
   const newer = (a, b) => { const x = a.split(".").map(Number), y = b.split(".").map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); return false; };
   if (!r?.version || !newer(r.version, m.version)) return;

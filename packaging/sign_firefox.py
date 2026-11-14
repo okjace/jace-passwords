@@ -100,11 +100,14 @@ def main() -> int:
     manifest = json.loads((EXT / "manifest.json").read_text())
     guid =manifest["browser_specific_settings"]["gecko"]["id"]
     version = manifest["version"]
-    xpi = build("firefox")
+    # AMO_CHANNEL=listed once the add-on is approved in the Firefox add-ons store: each version then goes to
+    # the store (which updates everyone), built without update_url. A version number can only be in one channel.
+    channel = os.environ.get("AMO_CHANNEL", "").strip() or "unlisted"
+    xpi = build("firefox-store" if channel == "listed" else "firefox")
     amo = Amo(issuer, secret)
 
-    print(f"Uploading {xpi.name} (unlisted)…")
-    up = amo.request("POST", "/addons/upload/", form={"upload": xpi, "channel": "unlisted"})
+    print(f"Uploading {xpi.name} ({channel})…")
+    up = amo.request("POST", "/addons/upload/", form={"upload": xpi, "channel": channel})
     while not up.get("processed"):
         time.sleep(3)
         up = amo.request("GET", f"/addons/upload/{up['uuid']}/")

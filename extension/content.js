@@ -333,6 +333,7 @@
   const iconBtn = root.querySelector(".icon");
   const menu = root.querySelector(".menu");
   let current = null; // { el, kind }
+  let mailToken = 0;
 
   function attach() { if (!host.isConnected) document.documentElement.appendChild(host); }
 
@@ -400,9 +401,15 @@
     if (group === "totp") {
       html += `<button class="it" data-totp="1"><span class="tile" style="background:#12a26b">🔢</span><span class="m"><div class="t">Fill 2FA code</div><div class="muted">From the login you just used</div></span></button>`;
       (m.logins || []).filter((l) => l.hasTotp).forEach((l) => (html += `<button class="it" data-id="${esc(l.id)}" data-totp-id="1">${tile(l.title)}<span class="m"><div class="t">2FA · ${esc(l.title)}</div><div class="muted">${esc(l.username)}</div></span></button>`));
-      const mail = await send({ type: "email-codes" });
-      (mail.codes || []).forEach((c) => (html += `<button class="it" data-code="${esc(c.code)}"><span class="tile" style="background:#d93f3f">✉</span><span class="m"><div class="t">${esc(c.code)} · from ${esc(c.provider)}</div><div class="muted">${esc(c.from)}</div></span></button>`));
-      if (!mail.codes?.length) html += `<div class="msg" style="font-size:12px">${mail.inboxes ? "No code in your newest emails yet. Open this menu again when it arrives." : "Emailed a code? Open Gmail, Outlook or Proton Mail in a tab and it shows up here."}</div>`;
+      html += `<div id="jp-mail"><div class="msg" style="font-size:12px">✉ Checking your email for a code…</div></div>`;
+      const token = (mailToken = Math.random());
+      send({ type: "email-codes" }).then((mail) => {
+        const slot = root.getElementById("jp-mail");
+        if (!slot || token !== mailToken) return;
+        slot.innerHTML = (mail.codes || []).map((c) => `<button class="it" data-code="${esc(c.code)}"><span class="tile" style="background:#d93f3f">✉</span><span class="m"><div class="t">${esc(c.code)} · from ${esc(c.provider)}</div><div class="muted">${esc(c.from)}</div></span></button>`).join("")
+          || `<div class="msg" style="font-size:12px">${mail.checked ? "No code in your newest emails yet. Open this menu again when it arrives." : "Emailed a code? Turn on your email in the Jace Passwords toolbar button (✉ Email codes), or open your inbox in a tab."}</div>`;
+        placeMenu();
+      });
     }
     if (group === "login" && conditional && conditional.list.length) {
       conditional.list.forEach((p, n) => (html += `<button class="it" data-pk="${n}">${tile(p.title)}<span class="m"><div class="t">🔑 Passkey · ${esc(p.title)}</div><div class="muted">${esc(p.userName)}</div></span></button>`));
@@ -497,28 +504,10 @@
   // browser, only when you open that menu; nothing is sent anywhere and no email password is needed.
   const MAIL = { "mail.google.com": "Gmail", "outlook.live.com": "Outlook", "outlook.office.com": "Outlook",
     "outlook.office365.com": "Outlook", "mail.proton.me": "Proton Mail" };
-  const okCode = (c) => c.length >= 4 && c.length <= 8 && !/^(19|20)\d\d$/.test(c) && !/^(\d)\1+$/.test(c);
-  function codesIn(text) {
-    const t = String(text || "").replace(/\s+/g, " ");
-    const kw = /(code|passcode|\bpin\b|\botp\b|one[- ]time|verif|\b2fa\b|authenticat|c[oó]digo|\bkod|验证码)/gi; // words that mean "a code", not just "sign in"
-    const cand = /(?:^|[^A-Za-z0-9-])(G-\d{6}|\d{3}[ -]\d{3}|\d{4,8}|(?=[A-Z0-9]{5,8}(?![A-Za-z0-9]))(?=[A-Z0-9]*\d)[A-Z0-9]*[A-Z][A-Z0-9]*)(?![A-Za-z0-9])/g;
-    const found = [];
-    let m;
-    while ((m = kw.exec(t)) && found.length < 3) {
-      const win = t.slice(Math.max(0, m.index - 40), m.index + m[0].length + 70);
-      if (/promo|coupon|discount|gift|voucher|referral|% off/i.test(win)) continue; // shopping codes, not sign-in codes
-      let c;
-      cand.lastIndex = 0;
-      while ((c = cand.exec(win))) {
-        const code = c[1].replace(/^G-/, "").replace(/[ -]/g, "");
-        if (okCode(code) && !found.includes(code)) found.push(code);
-      }
-    }
-    return found;
-  }
+  const { codesIn } = globalThis.JPMail;
   function scanMail(siteName) {
     const provider = MAIL[location.hostname];
-    if (!provider || window !== window.top) return [];
+    if (!provider || window !== window.top) return { codes: [], rows: 0 };
     const txt = (el) => (el?.innerText || el?.getAttribute?.("aria-label") || "").trim();
     const shown = (el) => el.getClientRects().length > 0;
     const out = [];
@@ -542,12 +531,12 @@
     });
     const best = {};
     for (const c of out) if (!best[c.code] || best[c.code].score < c.score) best[c.code] = c;
-    return Object.values(best).sort((a, b) => b.score - a.score).slice(0, 3);
+    return { codes: Object.values(best).sort((a, b) => b.score - a.score).slice(0, 3), rows: rows.length + bodies.length, host: location.hostname };
   }
   if (MAIL[location.hostname] && window === window.top) {
     B.runtime.onMessage.addListener((msg, _sender, reply) => {
       if (msg.type !== "email-codes-scan") return;
-      try { reply({ codes: scanMail(msg.siteName || "") }); } catch { reply({ codes: [] }); }
+      try { reply(scanMail(msg.siteName || "")); } catch { reply({ codes: [], rows: 0 }); }
     });
   }
 

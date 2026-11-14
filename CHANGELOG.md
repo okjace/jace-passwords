@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.0
+
+- **Email codes without an open inbox tab:** in the extension's popup, **✉ Email codes**, turn on Gmail, Outlook or Proton Mail. Gmail is read from its unread-mail feed (the browser asks you to allow mail.google.com once); Outlook and Proton Mail open your inbox in a background tab for a few seconds, then close it. Uses your existing sign-in in this browser, only when you open a code field's menu. The 2FA menu shows right away and the emailed code drops in when it's found.
+- **Ready for the browser stores:** each release now has a `-firefox-store.zip` for the Firefox add-ons store, a privacy policy at jace-passwords.vercel.app/privacy.html, and `packaging/store-listing.md` with the listing text, permission reasons and step-by-step instructions for Firefox and Chrome. The extension declares its data use for Firefox, and copies installed from the Chrome Web Store don't show the "update available" bar.
+
 ## 1.4.0
 
 - **Codes from your email:** when a site emails you a sign-in code, the extension's 2FA menu offers it, read from your Gmail, Outlook or Proton Mail tab in the same browser. Keep your inbox open in a tab. It's read only when you open that menu, and nothing is sent anywhere.

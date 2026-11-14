@@ -37,6 +37,6 @@ document.getElementById("login").onclick = async () => {
 };
 // Load the extension scripts the way the browser would (page world first, then the content script).
 (async () => {
-  for (const f of ["/extension/passkey-page.js", "/extension/content.js"]) (0, eval)(await fetch(f).then((r) => r.text()));
+  for (const f of ["/extension/passkey-page.js", "/extension/mailcodes.js", "/extension/content.js"]) (0, eval)(await fetch(f).then((r) => r.text()));
 })();
 </script>

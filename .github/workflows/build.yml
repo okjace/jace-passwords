@@ -205,9 +205,10 @@ jobs:
     env:
       AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
       AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+      AMO_CHANNEL: ${{ vars.AMO_CHANNEL }} # "listed" once the Firefox add-ons store listing is approved
     steps:
       - uses: actions/checkout@v7
-      - name: Build Chrome .zip and Firefox .xpi
+      - name: Build Chrome .zip, Firefox .xpi and the Firefox store .zip
         run: python3 packaging/build_extension.py
       - name: Sign for Firefox / Jace Browser (unlisted on addons.mozilla.org)
         # only for releases, and only if the AMO_JWT_ISSUER / AMO_JWT_SECRET secrets are set

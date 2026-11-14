@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jace Passwords privacy policy</title>
+<link rel="icon" href="/icon.svg">
+<style>
+  :root { --bg: #f4f5f7; --panel: #fff; --text: #16181d; --muted: #5d6470; --accent: #1f9d5a; --line: #dfe2e7; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111317; --panel: #1c1f26; --text: #e6e8eb; --muted: #8b919c; --accent: #3ddc84; --line: #2a2f38; } }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 28px; margin: 0 0 4px; } h2 { font-size: 19px; margin-top: 32px; }
+  .muted { color: var(--muted); } a { color: var(--accent); }
+  .table { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; } td, th { border-top: 1px solid var(--line); padding: 8px 6px; text-align: left; vertical-align: top; }
+</style>
+</head>
+<body><main>
+<h1>Jace Passwords privacy policy</h1>
+<p class="muted">For the Jace Passwords desktop app, web app (jace-passwords.vercel.app) and browser extension. Last updated November 14, 2026.</p>
+
+<h2>The short version</h2>
+<p>Your vault (logins, passwords, passkeys, two-factor secrets, cards, addresses, notes) is encrypted on your own device before it's saved or synced. Jace Passwords has no ads, no analytics and no tracking, and never sells or shares your data.</p>
+
+<h2>What's stored, and where</h2>
+<ul>
+  <li><b>Your vault</b> is encrypted with AES-256-GCM on your device. With a master password it's end-to-end encrypted: the key comes from your master password (and Secret Key, if you use one) and never leaves your devices, so nobody else, including us, can read it.</li>
+  <li><b>If you unlock with your Jace account instead of a master password,</b> the Jace Passwords server derives a key for your account when you sign in. Your vault is still encrypted, but not end-to-end. The app tells you this before you choose it.</li>
+  <li><b>If you open the vault without a password, or have a device remember your master password,</b> the key is kept on that device only, encrypted with a key that also stays on that device.</li>
+  <li><b>Sync:</b> when you sign in with Jace, the encrypted vault is stored in your Jace account's sync storage so your other devices can get it.</li>
+  <li><b>In the browser extension:</b> your encrypted vault, settings and Jace sign-in are kept in the browser's extension storage, and the unlocked key in memory-only session storage that's cleared when you lock or close the browser.</li>
+</ul>
+
+<h2>What leaves your device</h2>
+<div class="table"><table>
+  <tr><th>To</th><th>What</th><th>Why</th></tr>
+  <tr><td>Jace (jaceo.vercel.app)</td><td>Your Jace sign-in, and your <i>encrypted</i> vault</td><td>Signing in and sync</td></tr>
+  <tr><td>Jace Passwords (jace-passwords.vercel.app)</td><td>Your Jace sign-in token; your encrypted vault passing through</td><td>Signing in from the web app and extension, sync, and the key for vaults that unlock with Jace</td></tr>
+  <tr><td>Have I Been Pwned (api.pwnedpasswords.com)</td><td>The first 5 characters of a password's SHA-1 hash, never the password, only when you check for breaches</td><td>Finding leaked passwords</td></tr>
+  <tr><td>2fa.directory, passkeys.directory, Have I Been Pwned's breach list</td><td>Nothing about you: the same public lists are downloaded for everyone</td><td>Watchtower's 2FA, passkey and breached-site checks</td></tr>
+  <tr><td>GitHub</td><td>Nothing about you</td><td>Checking for app updates</td></tr>
+</table></div>
+
+<h2>Sign-in codes from your email</h2>
+<p>When a website emails you a sign-in code, the extension can offer it in that site's code field. It reads the code from your Gmail, Outlook or Proton Mail inbox <b>in your own browser</b>: from an inbox you have open in a tab; from Gmail's unread-mail feed, if you turn Gmail on; or by opening your inbox in a background tab for a few seconds, if you turn Outlook or Proton Mail on. This happens only when you open the code field's menu, and only for the email services you turned on. It uses your existing sign-in to those services and never asks for your email password. Nothing it reads is stored or sent anywhere: the code goes only into the field you click.</p>
+
+<h2>The browser extension's permissions</h2>
+<ul>
+  <li><b>Read and change data on websites:</b> to find login, two-factor, card and address fields and fill them when you choose, to offer to save what you type into sign-in and checkout forms, to answer websites' passkey requests, and to read sign-in codes from your inbox tab. Nothing is filled without your action, and card details only go to the page's own site or its payment provider's frames.</li>
+  <li><b>mail.google.com (optional, asked for when you turn Gmail on):</b> reading Gmail's unread-mail feed for sign-in codes.</li>
+  <li><b>storage:</b> keeping your encrypted vault, settings and sign-in on your device.</li>
+  <li><b>identity:</b> opening the "Sign in with Jace" window.</li>
+  <li><b>contextMenus, scripting, activeTab:</b> the right-click "generate password" and "fill" menu, and filling the tab you're on.</li>
+  <li><b>127.0.0.1:47620 and jace-passwords.vercel.app:</b> talking to the Jace Passwords desktop app on your computer, if you connect to it, and to the Jace Passwords site for sign-in and sync.</li>
+</ul>
+
+<h2>Your choices</h2>
+<p>You can export your vault, delete items, turn email codes off, sign out of Jace (sync stops), or delete the vault from a device. Uninstalling the app or extension removes its local data. Deleting your Jace sync data removes the synced copy.</p>
+
+<h2>Open source and contact</h2>
+<p>All of Jace Passwords' code is public at <a href="https://github.com/okjace/jace-passwords">github.com/okjace/jace-passwords</a>. Questions or requests: <a href="https://github.com/okjace/jace-passwords/issues">open an issue</a>.</p>
+</main></body>
+</html>

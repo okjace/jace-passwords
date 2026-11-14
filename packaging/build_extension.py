@@ -5,6 +5,10 @@
                                               or unzip and "Load unpacked")
   dist/jace-passwords-<version>-firefox.xpi   Firefox / Jace Browser, UNSIGNED. Sign it with
                                               packaging/sign_firefox.py to install it permanently.
+                                              Updates itself from this project's own update list.
+  dist/jace-passwords-<version>-firefox-store.zip  For the Firefox add-ons store (addons.mozilla.org,
+                                              listed): the same, without update_url, because the store
+                                              updates listed add-ons itself.
 """
 import json
 import sys
@@ -30,10 +34,12 @@ def build(target: str) -> Path:
         manifest["background"] = {"service_worker": "background.js"}  # imports vault/*.js itself
         manifest.pop("browser_specific_settings", None)
     else:
-        manifest["background"] = {"scripts": ["vault/words.js", "vault/webvault.js", "background.js"]}
+        manifest["background"] = {"scripts": ["vault/words.js", "vault/webvault.js", "mailcodes.js", "background.js"]}
+        if target == "firefox-store":
+            manifest["browser_specific_settings"]["gecko"].pop("update_url", None)
     version = manifest["version"]
     DIST.mkdir(exist_ok=True)
-    out = DIST / f"jace-passwords-{version}-{target}.{'zip' if target == 'chrome' else 'xpi'}"
+    out = DIST / f"jace-passwords-{version}-{target}.{'xpi' if target == 'firefox' else 'zip'}"
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("manifest.json", json.dumps(manifest, indent=2))
         for f in files():
@@ -47,6 +53,6 @@ def build(target: str) -> Path:
 
 
 if __name__ == "__main__":
-    targets = sys.argv[1:] or ["chrome", "firefox"]
+    targets = sys.argv[1:] or ["chrome", "firefox", "firefox-store"]
     for t in targets:
         print(build(t))

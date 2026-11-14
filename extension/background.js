@@ -6,7 +6,7 @@
 const B = globalThis.browser ?? globalThis.chrome;
 const APP = "http://127.0.0.1:47620";
 const WEB = "https://jace-passwords.vercel.app";
-if (typeof importScripts === "function" && !globalThis.JPCore) importScripts("vault/words.js", "vault/webvault.js");
+if (typeof importScripts === "function" && !globalThis.JPCore) importScripts("vault/words.js", "vault/webvault.js", "mailcodes.js");
 
 // ---------- standalone: the vault engine, with extension storage and the extension's own Jace token ----------
 let cache = {};
@@ -135,6 +135,83 @@ async function call(path, method = "GET", body) {
   return j;
 }
 
+// ---------- sign-in codes from email ----------
+// 1. An inbox already open in a tab: content.js reads it.
+// 2. Gmail with no tab open: Gmail's own unread-mail feed, with your Gmail sign-in in this browser (needs the
+//    optional mail.google.com permission, asked for when you turn Gmail on).
+// 3. Outlook / Proton Mail with no tab open (they have no feed): your inbox opens in a background tab for a few
+//    seconds, content.js reads it, and the tab closes.
+// Only when you open a 2FA field's menu, and only for the email services you turned on. Nothing leaves this browser.
+const MAILBOXES = {
+  gmail: { name: "Gmail", match: "https://mail.google.com/*", inbox: "https://mail.google.com/mail/u/0/#inbox" },
+  outlook: { name: "Outlook", match: "https://outlook.live.com/*", inbox: "https://outlook.live.com/mail/0/" },
+  outlookWork: { name: "Outlook (work or school)", match: "https://outlook.office.com/*", inbox: "https://outlook.office.com/mail/" },
+  proton: { name: "Proton Mail", match: "https://mail.proton.me/*", inbox: "https://mail.proton.me/u/0/inbox" },
+};
+const MAIL_HOSTS = { "mail.google.com": "gmail", "outlook.live.com": "outlook", "outlook.office.com": "outlookWork", "outlook.office365.com": "outlookWork", "mail.proton.me": "proton" };
+async function mailSources() { return (await B.storage.local.get("mailSources")).mailSources || {}; }
+const mailCache = {}; // provider -> { at, codes }
+const withTimeout = (p, ms) => Promise.race([Promise.resolve(p).catch(() => null), new Promise((res) => setTimeout(() => res(null), ms))]);
+const scanTab = (tabId, siteName) => withTimeout(B.tabs.sendMessage(tabId, { type: "email-codes-scan", siteName }, { frameId: 0 }), 800);
+
+async function gmailFeed(siteName) {
+  if (!(await B.permissions.contains({ origins: [MAILBOXES.gmail.match] }).catch(() => false))) return null;
+  const r = await withTimeout(fetch("https://mail.google.com/mail/u/0/feed/atom", { credentials: "include", cache: "no-store" }), 8000);
+  if (!r || !r.ok) return null;
+  const xml = await r.text();
+  if (!xml.includes("<feed")) return null; // signed out: Gmail sends a sign-in page instead
+  const unxml = (s) => String(s || "").replace(/<!\[CDATA\[|\]\]>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&amp;/g, "&");
+  const tag = (e, t) => unxml((e.match(new RegExp(`<${t}[^>]*>([\\s\\S]*?)</${t}>`)) || [])[1]);
+  const out = [];
+  [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)].slice(0, 10).forEach(([, e], n) => {
+    const issued = Date.parse(tag(e, "issued") || tag(e, "modified"));
+    if (issued && Date.now() - issued > 30 * 60 * 1000) return; // codes are short-lived: last 30 minutes only
+    const title = tag(e, "title"), text = `${tag(e, "name")} ${title} ${tag(e, "summary")}`;
+    for (const code of JPMail.codesIn(text)) {
+      out.push({ code, provider: "Gmail", from: title.slice(0, 70), score: (siteName && text.toLowerCase().includes(siteName) ? 4 : 0) + 2 + (8 - Math.min(n, 8)) / 4 });
+    }
+  });
+  return out;
+}
+
+async function backgroundInbox(key, siteName) {
+  const tab = await B.tabs.create({ url: MAILBOXES[key].inbox, active: false }).catch(() => null);
+  if (!tab) return null;
+  try {
+    for (let i = 0; i < 20; i++) { // up to ~20 s for the inbox to load
+      await new Promise((res) => setTimeout(res, 1000));
+      const r = await scanTab(tab.id, siteName);
+      if (r && (r.codes.length || (r.rows && i >= 3))) return r.codes; // found one, or the list has loaded
+    }
+    return [];
+  } finally {
+    B.tabs.remove(tab.id).catch(() => {});
+  }
+}
+
+async function emailCodes(siteName, fromTab) {
+  const sources = await mailSources();
+  const tabs = await B.tabs.query({}).catch(() => []);
+  // 1. inboxes already open (any webmail tab answers; others don't)
+  const open = (await Promise.all(tabs.filter((t) => t.id !== fromTab && !t.discarded).map((t) => scanTab(t.id, siteName)))).filter((a) => a && a.codes);
+  let codes = open.flatMap((a) => a.codes);
+  const openHosts = new Set(open.map((a) => MAIL_HOSTS[a.host]).filter(Boolean)); // inboxes that answered
+  // 2./3. the services you turned on, without an open tab
+  if (!codes.length) {
+    const jobs = Object.keys(MAILBOXES).filter((k) => sources[k] && !openHosts.has(k)).map(async (k) => {
+      const hit = mailCache[k];
+      if (hit && Date.now() - hit.at < 15000) return hit.codes;
+      let got = k === "gmail" ? await gmailFeed(siteName) : null;
+      if (got === null) got = (await backgroundInbox(k, siteName)) || [];
+      mailCache[k] = { at: Date.now(), codes: got };
+      return got;
+    });
+    codes = (await Promise.all(jobs)).flat();
+  }
+  const checked = open.length + Object.keys(MAILBOXES).filter((k) => sources[k]).length;
+  return { codes: codes.sort((a, b) => b.score - a.score).slice(0, 3), checked };
+}
+
 async function handle(msg, sender) {
   const tabId = sender.tab?.id ?? msg.tabId;
   switch (msg.type) {
@@ -187,18 +264,17 @@ async function handle(msg, sender) {
       if (!r.error && r.type === "login" && tabId !== undefined) await rememberFilled(tabId, msg.id);
       return r;
     }
-    case "email-codes": { // codes in your Gmail / Outlook / Proton Mail tabs (content.js scanMail)
+    case "email-codes": { // sign-in codes from your email (see "sign-in codes from email" below)
       if (!sender.tab) return { codes: [] };
-      const host = (() => { try { return new URL(sender.tab.url || sender.url || "").hostname; } catch { return ""; } })();
-      const parts = host.replace(/^www\./, "").split(".");
-      const siteName = (parts.length > 2 && parts.at(-2).length <= 3 ? parts.at(-3) : parts.at(-2)) || "";
-      const tabs = await B.tabs.query({});
-      const ask = (t) => Promise.race([
-        Promise.resolve(B.tabs.sendMessage(t.id, { type: "email-codes-scan", siteName }, { frameId: 0 })).catch(() => null),
-        new Promise((res) => setTimeout(() => res(null), 800))]);
-      const answers = (await Promise.all(tabs.filter((t) => t.id !== sender.tab.id && !t.discarded).map(ask))).filter((a) => a && a.codes);
-      const codes = answers.flatMap((a) => a.codes).sort((a, b) => b.score - a.score).slice(0, 3);
-      return { codes, inboxes: answers.length };
+      let host = "";
+      try { host = new URL(sender.tab.url || sender.url || "").hostname; } catch { /* */ }
+      return emailCodes(JPMail.siteName(host), sender.tab.id);
+    }
+    case "mail-settings": {
+      if (sender.tab) return { error: "forbidden" };
+      if (msg.set) await B.storage.local.set({ mailSources: { ...(await mailSources()), ...msg.set } });
+      const has = await B.permissions.contains({ origins: [MAILBOXES.gmail.match] }).catch(() => false);
+      return { sources: await mailSources(), gmailFeed: has };
     }
     case "totp-for-tab": {
       const lf = await recallFilled(tabId);

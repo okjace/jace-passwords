@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Jace Passwords",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Autofill logins, passkeys, 2FA codes, credit & debit cards and identities from your Jace Passwords vault.",
   "icons": {
     "16": "icons/icon16.png",
@@ -22,6 +22,7 @@
     "scripts": [
       "vault/words.js",
       "vault/webvault.js",
+      "mailcodes.js",
       "background.js"
     ]
   },
@@ -55,6 +56,7 @@
         "https://*/*"
       ],
       "js": [
+        "mailcodes.js",
         "content.js"
       ],
       "all_frames": true,
@@ -74,7 +76,17 @@
     "gecko": {
       "id": "jace-passwords@okjace",
       "strict_min_version": "128.0",
-      "update_url": "https://jace-passwords.vercel.app/api/jace/ext-updates"
+      "update_url": "https://jace-passwords.vercel.app/api/jace/ext-updates",
+      "data_collection_permissions": {
+        "required": [
+          "authenticationInfo",
+          "personallyIdentifyingInfo",
+          "financialAndPaymentInfo"
+        ]
+      }
     }
-  }
+  },
+  "optional_host_permissions": [
+    "https://mail.google.com/*"
+  ]
 }

@@ -29,7 +29,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .tabs button.on { background: var(--bg); color: var(--text); }
 .gen { font-family: ui-monospace, monospace; font-size: 15px; padding: 14px; background: var(--panel); border-radius: 10px; word-break: break-all; }
 .code { font-family: ui-monospace, monospace; font-weight: 700; letter-spacing: .08em; }
-footer { padding: 8px 12px 12px; display: flex; justify-content: space-between; }
+footer { padding: 8px 12px 12px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; }
 footer a { color: var(--accent); cursor: pointer; font-size: 12px; }
 .update { background: var(--accent); color: var(--on-accent); padding: 8px 12px; font-size: 12px; font-weight: 600; }
 .update a { color: inherit; text-decoration: underline; cursor: pointer; }
+
+.mrow { display: flex; gap: 8px; align-items: flex-start; padding: 8px 2px; border-top: 1px solid var(--line, rgba(127,127,127,.2)); cursor: pointer; }
+.mrow input { width: auto; margin: 3px 0 0; flex: none; }
