@@ -45,6 +45,9 @@
 <h2>Sign-in codes from your email</h2>
 <p>When a website emails you a sign-in code, the extension can offer it in that site's code field. It reads the code from your Gmail, Outlook or Proton Mail inbox <b>in your own browser</b>: from an inbox you have open in a tab; from Gmail's unread-mail feed, if you turn Gmail on; or by opening your inbox in a background tab for a few seconds, if you turn Outlook or Proton Mail on. This happens only when you open the code field's menu, and only for the email services you turned on. It uses your existing sign-in to those services and never asks for your email password. Nothing it reads is stored or sent anywhere: the code goes only into the field you click.</p>
 
+<h2>Field reports</h2>
+<p>If you tell the extension what a form field is ("this is the password field", "nothing to fill here"), it remembers that on your device. If you're signed in with Jace, the report is also sent to Jace so autofill recognizes the field for everyone: the website's host name, the field's name on the page, the kind you picked, and your Jace account id (used to keep one report per person and limit how many each account can send). What you typed into the field is never sent. Everyone's reports are published as one list, without account ids, which every copy of the extension downloads; it doesn't look up the sites you visit. Reports from other people can't turn a field into a password or card-security field unless it already looks like one.</p>
+
 <h2>The browser extension's permissions</h2>
 <ul>
   <li><b>Read and change data on websites:</b> to find login, two-factor, card and address fields and fill them when you choose, to offer to save what you type into sign-in and checkout forms, to answer websites' passkey requests, and to read sign-in codes from your inbox tab. Nothing is filled without your action, and card details only go to the page's own site or its payment provider's frames.</li>

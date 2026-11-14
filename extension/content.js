@@ -70,8 +70,19 @@
     const label = el.labels?.[0]?.textContent || el.getAttribute("aria-label");
     return label ? "label:" + clean(label) : null;
   }
-  let siteRules = {}; // fieldKey -> kind, from field reports (yours and everyone's)
-  send({ type: "field-rules-for", host: location.hostname }).then((r) => { if (r && r.rules) siteRules = r.rules; });
+  // Field reports: yours apply as you said. Everyone else's can't make a field a password or card-secret
+  // field unless it looks like one, so one wrong (or hostile) report can't send passwords into a public text box.
+  let siteRules = {}, sharedRules = {}; // fieldKey -> kind
+  send({ type: "field-rules-for", host: location.hostname }).then((r) => { if (r) { siteRules = r.mine || {}; sharedRules = r.shared || {}; } });
+  function sharedRuleFits(el, k) {
+    const isInput = el instanceof HTMLInputElement, type = isInput ? (el.type || "text").toLowerCase() : "";
+    if (k === "password" || k === "new-password") return type === "password";
+    if (k === "cc-number" || k === "cc-csc") {
+      return isInput && type !== "email" && (["tel", "number", "password"].includes(type) || el.inputMode === "numeric"
+        || (el.maxLength > 0 && el.maxLength <= 30));
+    }
+    return true;
+  }
 
   function classify(el) {
     const ruled = ruledKind(el);
@@ -81,7 +92,10 @@
   function ruledKind(el) {
     if (!(el instanceof HTMLInputElement || el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement) || el.disabled || el.readOnly) return undefined;
     if (el instanceof HTMLInputElement && ["hidden", "submit", "button", "checkbox", "file", "image", "reset", "range", "color"].includes(el.type)) return undefined;
-    const key = fieldKey(el), k = key && siteRules[key];
+    const key = fieldKey(el);
+    if (!key) return undefined;
+    let k = siteRules[key];
+    if (!k && sharedRules[key] && sharedRuleFits(el, sharedRules[key])) k = sharedRules[key];
     return k ? (k === "none" ? null : k) : undefined;
   }
   function guessKind(el) {

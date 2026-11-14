@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.2
+
+- **Safer field reports:** other people's reports can't turn a field into a password field unless it's really a password box, or into a card-number or security-code field unless it looks like one. So one wrong or hostile report can't make autofill put passwords into a public text box. Your own reports still apply exactly as you set them.
+- The privacy policy now explains field reports, including that Jace stores them with your account id.
+
 ## 1.6.1
 
 - The extension no longer asks for the `scripting` permission, which it didn't use.

@@ -322,9 +322,9 @@ async function handle(msg, sender) {
       const has = await B.permissions.contains({ origins: [MAILBOXES.gmail.match] }).catch(() => false);
       return { sources: await mailSources(), gmailFeed: has };
     }
-    case "field-rules-for": { // the rules for the page's site: everyone's, then yours on top
+    case "field-rules-for": { // the rules for the page's site: everyone's, and yours (which win)
       const host = plainHost(msg.host);
-      return { rules: { ...((await sharedRules())[host] || {}), ...((await myRules())[host] || {}) } };
+      return { shared: (await sharedRules())[host] || {}, mine: (await myRules())[host] || {} };
     }
     case "field-report": return reportField(msg);
     case "totp-for-tab": {
