@@ -205,7 +205,7 @@ jobs:
     env:
       AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
       AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
-      AMO_CHANNEL: ${{ vars.AMO_CHANNEL }} # "listed" once the Firefox add-ons store listing is approved
+      AMO_LISTED: ${{ vars.AMO_LISTED }} # "1" once Jace Passwords is in the Firefox add-ons store: each release goes there too (as X.1)
     steps:
       - uses: actions/checkout@v7
       - name: Build Chrome .zip, Firefox .xpi and the Firefox store .zip

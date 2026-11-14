@@ -77,6 +77,25 @@ class Amo:
             raise RuntimeError(f"{method} {url} -> {e.code}: {detail}") from None
 
 
+def send_to_store(amo, guid):
+    """Also sends this release to the Firefox add-ons store (listed), as version X.1. Mozilla reviews it and
+    the store updates everyone who installed from there. Doesn't wait, and never fails the release."""
+    try:
+        store = build("firefox-store")
+        print(f"Sending {store.name} to the Firefox add-ons store (listed)…")
+        up = amo.request("POST", "/addons/upload/", form={"upload": store, "channel": "listed"})
+        while not up.get("processed"):
+            time.sleep(3)
+            up = amo.request("GET", f"/addons/upload/{up['uuid']}/")
+        if not up.get("valid"):
+            print("::warning::The store copy didn't pass Mozilla's validator; the GitHub copy is unaffected.")
+            return
+        amo.request("POST", f"/addons/addon/{guid}/versions/", body={"upload": up["uuid"]})
+        print("Sent to the add-ons store; it goes live after Mozilla's review.")
+    except RuntimeError as e:
+        print(f"::warning::Couldn't send the store copy: {e}")
+
+
 def main() -> int:
     issuer, secret = os.environ.get("AMO_JWT_ISSUER"), os.environ.get("AMO_JWT_SECRET")
     if not issuer or not secret:
@@ -100,12 +119,12 @@ def main() -> int:
     manifest = json.loads((EXT / "manifest.json").read_text())
     guid =manifest["browser_specific_settings"]["gecko"]["id"]
     version = manifest["version"]
-    # AMO_CHANNEL=listed once the add-on is approved in the Firefox add-ons store: each version then goes to
-    # the store (which updates everyone), built without update_url. A version number can only be in one channel.
-    channel = os.environ.get("AMO_CHANNEL", "").strip() or "unlisted"
-    xpi = build("firefox-store" if channel == "listed" else "firefox")
+    xpi = build("firefox")
     amo = Amo(issuer, secret)
+    if os.environ.get("AMO_LISTED", "").strip() in ("1", "true", "yes"):
+        send_to_store(amo, guid)
 
+    channel = "unlisted"
     print(f"Uploading {xpi.name} ({channel})…")
     up = amo.request("POST", "/addons/upload/", form={"upload": xpi, "channel": channel})
     while not up.get("processed"):

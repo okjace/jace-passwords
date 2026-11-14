@@ -6,9 +6,11 @@
   dist/jace-passwords-<version>-firefox.xpi   Firefox / Jace Browser, UNSIGNED. Sign it with
                                               packaging/sign_firefox.py to install it permanently.
                                               Updates itself from this project's own update list.
-  dist/jace-passwords-<version>-firefox-store.zip  For the Firefox add-ons store (addons.mozilla.org,
-                                              listed): the same, without update_url, because the store
-                                              updates listed add-ons itself.
+  dist/jace-passwords-<version>.1-firefox-store.zip  For the Firefox add-ons store (addons.mozilla.org,
+                                              listed): the same, without update_url (the store updates it),
+                                              numbered <version>.1 because the add-on's unlisted copy (the
+                                              GitHub download) already uses <version>, and Mozilla allows
+                                              each version number once.
 """
 import json
 import sys
@@ -24,6 +26,9 @@ SHARED = {"vault/webvault.js": ROOT / "jace_passwords" / "web" / "webvault.js",
           "vault/words.js": ROOT / "jace_passwords" / "web" / "words.js"}
 
 
+STORE_SUFFIX = ".1"  # the Firefox store copy of version X is X.1 (see the docstring)
+
+
 def files():
     return sorted(p for p in EXT.rglob("*") if p.is_file() and p.name not in SKIP and p.name != "manifest.json")
 
@@ -37,6 +42,7 @@ def build(target: str) -> Path:
         manifest["background"] = {"scripts": ["vault/words.js", "vault/webvault.js", "mailcodes.js", "background.js"]}
         if target == "firefox-store":
             manifest["browser_specific_settings"]["gecko"].pop("update_url", None)
+            manifest["version"] += STORE_SUFFIX
     version = manifest["version"]
     DIST.mkdir(exist_ok=True)
     out = DIST / f"jace-passwords-{version}-{target}.{'xpi' if target == 'firefox' else 'zip'}"

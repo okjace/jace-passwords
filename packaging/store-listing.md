@@ -75,13 +75,17 @@ Then tick all three certifications: not sold to third parties; not used for unre
 ## Step by step
 
 ### Firefox add-ons store (free)
+The add-on already exists on addons.mozilla.org as an *unlisted* add-on: every release signs its GitHub
+download there, as version X. The store copy of the same release is version **X.1** (Mozilla allows each
+number once), built without `update_url` so the store updates it. GitHub copies keep updating from GitHub.
+
 1. Sign in at https://addons.mozilla.org/developers/ with the account that has the API keys.
-2. *My Add-ons* → **Jace Passwords** (it's there already, as an unlisted add-on signed by every release).
-3. **Upload New Version** → choose **On this site** (listed) → upload `jace-passwords-<version>-firefox-store.zip` from the newest release. A version number can be in only one channel, so if CI already signed that version as unlisted, first make a new release (bump the version), then upload its `-firefox-store.zip`.
-4. Fill in the listing from above (summary, description, category, privacy policy URL, support URL, reviewer notes) and submit.
-5. Once it's approved, set the repository variable so every release goes to the store instead:
-   `gh variable set AMO_CHANNEL -R okjace/jace-passwords -b listed`
-   From then on, Firefox and Jace Browser get updates from the store, including copies installed from GitHub.
+2. *My Add-ons* → **Jace Passwords** → **Upload New Version** → **On this site** (listed) → upload
+   `jace-passwords-<version>.1-firefox-store.zip` from the newest release.
+3. Fill in the listing from above (name, summary, description, category, support site, privacy policy,
+   license MIT, notes for reviewers) and submit.
+4. Then turn on automatic store uploads, so every release is also sent to the store:
+   `gh variable set AMO_LISTED -R okjace/jace-passwords -b 1`
 
 ### Chrome Web Store ($5, one time)
 1. Register at https://chrome.google.com/webstore/devconsole (Google account, $5 fee, verify your email).
