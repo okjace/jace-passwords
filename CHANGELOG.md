@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.0
+
+- **Email codes from Proton Mail, take three:** Proton shows each message in a frame the page around it can't read. The extension now also runs inside Proton's message frames, finds the code there, and passes only the code up (never the message). Test now reports how much text it read inside frames.
+
 ## 1.6.9
 
 - **Email codes from Proton Mail, take two:** if clicking the newest message in the background tab doesn't open it, the extension goes to the message's own address. It reads the opened message wherever Proton shows it (frames, shadow parts, or the page's main area). Test now reports more detail.

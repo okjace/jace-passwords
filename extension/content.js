@@ -583,6 +583,15 @@
   const MAIL = { "mail.google.com": "Gmail", "outlook.live.com": "Outlook", "outlook.office.com": "Outlook",
     "outlook.office365.com": "Outlook", "mail.proton.me": "Proton Mail" };
   const { codesIn } = globalThis.JPMail;
+  // Codes reported by mailframe.js from inside this page's message frames (latest per frame).
+  const frameReports = new Map();
+  if (MAIL[location.hostname] && window === window.top) {
+    addEventListener("message", (e) => {
+      if (e.data?.tag !== "jace-passwords-mailframe" || e.source === window) return;
+      if (![...document.querySelectorAll("iframe")].some((f) => f.contentWindow === e.source)) return; // only this page's own frames
+      frameReports.set(e.source, { chars: +e.data.chars || 0, codes: (e.data.codes || []).map(String).filter((c) => globalThis.JPMail.okCode(c)).slice(0, 3) });
+    });
+  }
   const mailRows = () => [...document.querySelectorAll("tr.zA, [role='listbox'] [role='option'], [data-shortcut-target='item-container'], .item-container")]
     .filter((el) => el.getClientRects().length > 0);
   function scanMail(siteName) {
@@ -604,10 +613,16 @@
       frames++;
       try { const b = f.contentDocument?.body; if (b && txt(b)) { bodies.push(b); readable++; } } catch { /* other site's frame */ }
     }
+    const subject = txt(document.querySelector("h2.hP, [data-testid='message-header-expanded:subject'], [data-testid='conversation-header:subject'], [role='heading'][aria-level='2']"));
+    let frameChars = 0;
+    for (const [win, r] of frameReports) {
+      if (![...document.querySelectorAll("iframe")].some((f) => f.contentWindow === win)) { frameReports.delete(win); continue; }
+      frameChars += r.chars;
+      r.codes.forEach((code) => out.push({ code, provider, from: (subject || "Open message").slice(0, 70), score: 2 + (siteName ? 0 : 0) }));
+    }
     for (const el of document.querySelectorAll("[data-testid*='message'], [class*='message'], article, main *")) {
       if (el.shadowRoot) { shadows++; const t = el.shadowRoot.textContent || ""; if (t.trim()) bodies.push({ innerText: t }); }
     }
-    const subject = txt(document.querySelector("h2.hP, [data-testid='message-header-expanded:subject'], [data-testid='conversation-header:subject'], [role='heading'][aria-level='2']"));
     bodies.slice(-3).forEach((b) => add(txt(b), subject || "Open message", 0, true));
     // the newest messages in the list
     const rows = mailRows().slice(0, 8);
@@ -629,7 +644,7 @@
     const best = {};
     for (const c of out) if (!best[c.code] || best[c.code].score < c.score) best[c.code] = c;
     return { codes: Object.values(best).sort((a, b) => b.score - a.score).slice(0, 3), rows: rows.length + bodies.length, host: location.hostname,
-      seen: { list: rows.length, bodies: bodies.length, frames, readable, shadows, pageChars, hidden: document.visibilityState === "hidden",
+      seen: { list: rows.length, bodies: bodies.length, frames, readable, shadows, pageChars, frameChars, hidden: document.visibilityState === "hidden",
         path: location.pathname.split("/").length, bodyChars: bodies.reduce((n, b) => n + txt(b).length, 0) } };
   }
   if (MAIL[location.hostname] && window === window.top) {
