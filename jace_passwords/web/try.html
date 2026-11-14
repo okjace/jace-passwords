@@ -6,26 +6,161 @@
 <title>Try autofill · Jace Passwords</title>
 <link rel="icon" href="/icon.svg">
 <style>
-  :root { --bg: #f4f5f7; --panel: #fff; --line: #dfe2e7; --text: #16181d; --muted: #5d6470; --accent: #1f9d5a; --on-accent: #fff; color-scheme: light; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #111317; --panel: #1c1f26; --line: #2a2f38; --text: #e6e8eb; --muted: #8b919c; --accent: #3ddc84; --on-accent: #0c1410; color-scheme: dark; } }
+  :root { --bg: #f4f5f7; --panel: #fff; --panel2: #eceef1; --line: #dfe2e7; --text: #16181d; --muted: #5d6470; --accent: #1f9d5a; --on-accent: #fff; --ok: #1f9d5a; color-scheme: light; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111317; --panel: #1c1f26; --panel2: #23272f; --line: #2a2f38; --text: #e6e8eb; --muted: #8b919c; --accent: #3ddc84; --on-accent: #0c1410; --ok: #3ddc84; color-scheme: dark; } }
   * { box-sizing: border-box; }
-  body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; display: grid; place-items: center; padding: 24px 16px; }
-  .card { width: 100%; max-width: 420px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 30px; }
-  h1 { font-size: 22px; margin: 0 0 4px; } p { margin: 0 0 18px; color: var(--muted); }
-  label { display: block; font-weight: 600; font-size: 13px; margin: 14px 0 6px; }
-  input { width: 100%; padding: 11px 13px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; }
-  button { width: 100%; margin-top: 20px; padding: 12px; border: 0; border-radius: 10px; background: var(--accent); color: var(--on-accent); font: inherit; font-weight: 700; cursor: pointer; }
-  .note { margin-top: 16px; font-size: 13px; color: var(--muted); } a { color: var(--accent); }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  a { color: var(--accent); }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 60px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; color: var(--text); text-decoration: none; }
+  .brand img { width: 28px; height: 28px; }
+  h1 { font-size: clamp(26px, 4vw, 34px); margin: 18px 0 6px; letter-spacing: -.5px; }
+  .lead { color: var(--muted); margin: 0 0 18px; max-width: 720px; }
+  nav.toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 22px; }
+  nav.toc a { font-size: 13px; padding: 5px 11px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); text-decoration: none; color: var(--text); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px; scroll-margin-top: 12px; }
+  section h2 { margin: 0 0 2px; font-size: 18px; display: flex; align-items: center; gap: 8px; }
+  section p.how { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+  .badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--panel2); color: var(--muted); }
+  .badge.ok { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+  label { display: block; font-weight: 600; font-size: 13px; margin: 10px 0 5px; }
+  input, select { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; }
+  input.filled, select.filled { border-color: var(--ok); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 20%, transparent); }
+  .row { display: flex; gap: 10px; } .row > * { flex: 1; min-width: 0; }
+  .boxes { display: flex; gap: 6px; } .boxes input { flex: 1; min-width: 0; max-width: 46px; text-align: center; font-size: 18px; padding: 10px 0; }
+  .radios { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 4px; } .radios label { display: flex; align-items: center; gap: 6px; font-weight: 500; margin: 0; }
+  .radios input { width: auto; }
+  button { margin-top: 14px; padding: 10px 16px; border: 0; border-radius: 10px; background: var(--accent); color: var(--on-accent); font: inherit; font-weight: 700; cursor: pointer; }
+  button.sec { background: var(--panel2); color: var(--text); }
+  .result { margin-top: 10px; font-size: 13px; color: var(--muted); min-height: 1.2em; word-break: break-word; }
+  iframe { width: 100%; height: 300px; border: 1px dashed var(--line); border-radius: 12px; background: var(--bg); }
+  .wide { grid-column: 1 / -1; }
+  footer { margin-top: 28px; color: var(--muted); font-size: 13px; }
 </style>
 </head>
 <body>
-<form class="card" action="/try" method="get" autocomplete="on">
+<div class="wrap">
+  <header><a class="brand" href="/"><img src="/icon.svg" alt="">Jace Passwords</a><a href="/app">Open the web app</a></header>
   <h1>Try autofill</h1>
-  <p>A practice sign-in page for the Jace Passwords extension. Click the email field and pick a login from the fill list. Nothing you enter here is sent anywhere.</p>
-  <label for="email">Email</label><input id="email" name="email" type="email" autocomplete="username" placeholder="you@example.com">
-  <label for="password">Password</label><input id="password" type="password" autocomplete="current-password" placeholder="Password">
-  <button type="button">Sign in</button>
-  <div class="note">Save a login with the website <b>https://jace-passwords.vercel.app/try</b> to see it here. <a href="/">About Jace Passwords</a></div>
-</form>
+  <p class="lead">Practice forms for everything the Jace Passwords extension fills. Nothing you enter here is sent anywhere: the forms only pretend to submit. Fields turn green when they're filled. Save a login with the website <b>https://jace-passwords.vercel.app</b> to see it offered here.</p>
+  <nav class="toc"><a href="#login">Sign in</a><a href="#signup">Sign up</a><a href="#otp">2FA code</a><a href="#boxes">Code boxes</a><a href="#email-code">Emailed code</a><a href="#passkey">Passkeys</a><a href="#card">Card</a><a href="#card-guess">Card (no hints)</a><a href="#card-frame">Card in a frame</a><a href="#address">Address</a><a href="#contact">Contact</a><a href="#report">Report a field</a></nav>
+
+  <div class="grid">
+    <section id="login"><h2>Sign in <span class="badge" data-badge>not filled</span></h2>
+      <p class="how">Click Email and pick a login. The password fills too. Press Sign in, and if it's a new or changed login you're offered to save it.</p>
+      <form data-try="login" method="post" action="#">
+        <label for="l-email">Email</label><input id="l-email" name="email" type="email" autocomplete="username" placeholder="you@example.com">
+        <label for="l-pw">Password</label><input id="l-pw" name="password" type="password" autocomplete="current-password" placeholder="Password">
+        <button>Sign in</button><div class="result"></div>
+      </form></section>
+
+    <section id="signup"><h2>Sign up <span class="badge" data-badge>not filled</span></h2>
+      <p class="how">Click New password and choose "Use a strong password": both password boxes get it. Press Create account to be offered to save it.</p>
+      <form data-try="signup" method="post" action="#">
+        <label for="s-email">Email</label><input id="s-email" name="new_email" type="email" autocomplete="username" placeholder="you@example.com">
+        <label for="s-pw">New password</label><input id="s-pw" name="new_password" type="password" autocomplete="new-password">
+        <label for="s-pw2">Confirm password</label><input id="s-pw2" name="confirm_password" type="password" autocomplete="new-password">
+        <button>Create account</button><div class="result"></div>
+      </form></section>
+
+    <section id="otp"><h2>2FA code <span class="badge" data-badge>not filled</span></h2>
+      <p class="how">The code menu opens by itself. Pick "Fill 2FA code" right after filling a login that has a 2FA code, or pick the login.</p>
+      <form data-try="otp" method="post" action="#">
+        <label for="o-code">Authentication code</label><input id="o-code" name="otp" autocomplete="one-time-code" inputmode="numeric" maxlength="8" placeholder="123456">
+        <button>Verify</button><div class="result"></div>
+      </form></section>
+
+    <section id="boxes"><h2>Code in boxes <span class="badge" data-badge>not filled</span></h2>
+      <p class="how">Six one-digit boxes, like many banks use: the code is spread across them.</p>
+      <form data-try="boxes" method="post" action="#">
+        <label>Enter the 6-digit code</label>
+        <div class="boxes"><input maxlength="1" inputmode="numeric" aria-label="Digit 1"><input maxlength="1" inputmode="numeric" aria-label="Digit 2"><input maxlength="1" inputmode="numeric" aria-label="Digit 3"><input maxlength="1" inputmode="numeric" aria-label="Digit 4"><input maxlength="1" inputmode="numeric" aria-label="Digit 5"><input maxlength="1" inputmode="numeric" aria-label="Digit 6"></div>
+        <button>Verify</button><div class="result"></div>
+      </form></section>
+
+    <section id="email-code"><h2>Emailed code <span class="badge" data-badge>not filled</span></h2>
+      <p class="how">Send yourself an email that says "Your verification code is 482913", keep Gmail, Outlook or Proton Mail open (or turn it on under ✉ Email codes in the toolbar button), then click this field.</p>
+      <form data-try="email-code" method="post" action="#">
+        <label for="e-code">Verification code from your email</label><input id="e-code" name="verification_code" autocomplete="one-time-code" inputmode="numeric" maxlength="8" placeholder="Code">
+        <button>Continue</button><div class="result"></div>
+      </form></section>
+
+    <section id="passkey"><h2>Passkeys <span class="badge" data-badge>not tried</span></h2>
+      <p class="how">Create a passkey for this page (Jace Passwords asks to save it), then sign in with it. Without a passkey saved, signing in says "No passkeys found". Passkeys made here only work on this page.</p>
+      <label for="pk-name">Name for the passkey</label><input id="pk-name" name="passkey_user" placeholder="you@example.com" autocomplete="username webauthn">
+      <div class="row"><button type="button" id="pk-create">Create a passkey</button><button type="button" class="sec" id="pk-get">Sign in with a passkey</button></div>
+      <div class="result" id="pk-result"></div></section>
+
+    <section id="card" class="wide"><h2>Card, with dropdowns <span class="badge" data-badge>not filled</span></h2>
+      <p class="how">Click Card number and pick a card: the name, number, expiry dropdowns, card type and brand fill. The security code (CVC) is kept only if you saved it. Press Pay to be offered to save a new card (never its CVC).</p>
+      <form data-try="card" method="post" action="#">
+        <div class="row"><div><label for="c-first">First name on card</label><input id="c-first" name="cc_first" autocomplete="cc-given-name"></div>
+          <div><label for="c-last">Last name on card</label><input id="c-last" name="cc_last" autocomplete="cc-family-name"></div></div>
+        <label for="c-num">Card number</label><input id="c-num" name="cardnumber" autocomplete="cc-number" inputmode="numeric" placeholder="1234 5678 9012 3456">
+        <div class="row">
+          <div><label for="c-mm">Expiry month</label><select id="c-mm" name="exp_month" autocomplete="cc-exp-month"><option value="">Month</option><option value="01">01 - January</option><option value="02">02 - February</option><option value="03">03 - March</option><option value="04">04 - April</option><option value="05">05 - May</option><option value="06">06 - June</option><option value="07">07 - July</option><option value="08">08 - August</option><option value="09">09 - September</option><option value="10">10 - October</option><option value="11">11 - November</option><option value="12">12 - December</option></select></div>
+          <div><label for="c-yy">Expiry year</label><select id="c-yy" name="exp_year" autocomplete="cc-exp-year"><option value="">Year</option><option>2026</option><option>2027</option><option>2028</option><option>2029</option><option>2030</option><option>2031</option><option>2032</option><option>2033</option><option>2034</option><option>2035</option></select></div>
+          <div><label for="c-cvc">Security code</label><input id="c-cvc" name="cvc" autocomplete="cc-csc" inputmode="numeric" maxlength="4"></div></div>
+        <div class="row">
+          <div><label for="c-type">Card type</label><select id="c-type" name="card_type"><option value="">Choose…</option><option value="VI">Visa</option><option value="MC">Mastercard</option><option value="AX">American Express</option><option value="DS">Discover</option></select></div>
+          <div><label>Credit or debit</label><div class="radios"><label><input type="radio" name="card_kind" value="credit"> Credit</label><label><input type="radio" name="card_kind" value="debit"> Debit</label></div></div></div>
+        <button>Pay</button><div class="result"></div>
+      </form></section>
+
+    <section id="card-guess"><h2>Card, no hints <span class="badge" data-badge>not filled</span></h2>
+      <p class="how">The same without autocomplete hints: Jace Passwords has to recognize the fields by their names, and a single MM / YY box.</p>
+      <form data-try="card-guess" method="post" action="#">
+        <label for="g-name">Name on card</label><input id="g-name" name="cardholder_name">
+        <label for="g-num">Card number</label><input id="g-num" name="card_number" inputmode="numeric">
+        <div class="row"><div><label for="g-exp">Expiry (MM / YY)</label><input id="g-exp" name="expiry" placeholder="MM / YY"></div>
+          <div><label for="g-cvv">CVV</label><input id="g-cvv" name="cvv" inputmode="numeric" maxlength="4"></div></div>
+        <button>Pay</button><div class="result"></div>
+      </form></section>
+
+    <section id="card-frame"><h2>Card in a frame <span class="badge">frame</span></h2>
+      <p class="how">Many checkouts put card fields in a frame from their payment provider. This frame is from this site: pick a card in it, or in the Name field above it, and the frame's fields fill too.</p>
+      <label for="f-name">Name (outside the frame)</label><input id="f-name" name="billing_name" autocomplete="cc-name">
+      <iframe src="/try-card" title="Card fields in a frame"></iframe></section>
+
+    <section id="address" class="wide"><h2>Address <span class="badge" data-badge>not filled</span></h2>
+      <p class="how">Click any field and pick an identity: everything fills, including the state and country dropdowns. Press Save address to be offered to save a new one.</p>
+      <form data-try="address" method="post" action="#">
+        <div class="row"><div><label for="a-first">First name</label><input id="a-first" name="first_name" autocomplete="given-name"></div>
+          <div><label for="a-last">Last name</label><input id="a-last" name="last_name" autocomplete="family-name"></div></div>
+        <label for="a-company">Company (optional)</label><input id="a-company" name="company" autocomplete="organization">
+        <label for="a-1">Street address</label><input id="a-1" name="address1" autocomplete="address-line1">
+        <label for="a-2">Apartment, suite, etc.</label><input id="a-2" name="address2" autocomplete="address-line2">
+        <div class="row">
+          <div><label for="a-city">City</label><input id="a-city" name="city" autocomplete="address-level2"></div>
+          <div><label for="a-state">State</label><select id="a-state" name="state" autocomplete="address-level1"><option value="">State…</option><option value="AL">Alabama</option><option value="AK">Alaska</option><option value="AZ">Arizona</option><option value="CA">California</option><option value="CO">Colorado</option><option value="FL">Florida</option><option value="GA">Georgia</option><option value="IL">Illinois</option><option value="MA">Massachusetts</option><option value="NY">New York</option><option value="NC">North Carolina</option><option value="OH">Ohio</option><option value="OR">Oregon</option><option value="PA">Pennsylvania</option><option value="TX">Texas</option><option value="WA">Washington</option></select></div>
+          <div><label for="a-zip">ZIP code</label><input id="a-zip" name="zip" autocomplete="postal-code"></div></div>
+        <label for="a-country">Country</label><select id="a-country" name="country" autocomplete="country"><option value="">Country…</option><option value="US">United States</option><option value="CA">Canada</option><option value="GB">United Kingdom</option><option value="AU">Australia</option><option value="DE">Germany</option><option value="FR">France</option><option value="IN">India</option><option value="JP">Japan</option><option value="MX">Mexico</option><option value="BR">Brazil</option></select>
+        <button>Save address</button><div class="result"></div>
+      </form></section>
+
+    <section id="contact"><h2>Contact details <span class="badge" data-badge>not filled</span></h2>
+      <p class="how">A newsletter-style form: full name, email, phone and birthday, recognized by their labels.</p>
+      <form data-try="contact" method="post" action="#">
+        <label for="t-name">Full name</label><input id="t-name" name="full_name">
+        <label for="t-email">Email address</label><input id="t-email" name="contact_email" type="email">
+        <label for="t-phone">Phone number</label><input id="t-phone" name="phone" type="tel">
+        <label for="t-bday">Birthday</label><input id="t-bday" name="birthday" placeholder="YYYY-MM-DD">
+        <button>Subscribe</button><div class="result"></div>
+      </form></section>
+
+    <section id="report"><h2>Report a field <span class="badge" data-badge>not filled</span></h2>
+      <p class="how">These boxes have meaningless names, so autofill can't tell what they are. Right-click one → "What is this field?" and pick what it is (Email or username, Password); it's recognized from then on. Your reports only change this page for you until a second person agrees.</p>
+      <form data-try="report" method="post" action="#">
+        <label for="r-1">Field A (it's really your email)</label><input id="r-1" name="qx7_field">
+        <label for="r-2">Field B (it's really your password)</label><input id="r-2" name="zz_val_2">
+        <button type="button" class="sec">Nothing happens</button><div class="result"></div>
+      </form></section>
+  </div>
+
+  <footer>Practice page for <a href="/">Jace Passwords</a>. Forms here never send anything: pressing a button only shows what would have been sent, so the extension can offer to save it. <a href="/privacy">Privacy</a></footer>
+</div>
+<script src="/try.js"></script>
 </body>
 </html>

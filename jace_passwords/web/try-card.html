@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Card fields (frame) · Jace Passwords</title>
+<style>
+  :root { --bg: #f4f5f7; --line: #dfe2e7; --text: #16181d; --muted: #5d6470; --ok: #1f9d5a; color-scheme: light; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111317; --line: #2a2f38; --text: #e6e8eb; --muted: #8b919c; --ok: #3ddc84; color-scheme: dark; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 14px; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  p { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+  label { display: block; font-weight: 600; font-size: 12px; margin: 8px 0 4px; }
+  input { width: 100%; padding: 9px 11px; border-radius: 9px; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; }
+  input.filled { border-color: var(--ok); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 20%, transparent); }
+  .row { display: flex; gap: 10px; } .row > * { flex: 1; min-width: 0; }
+</style>
+</head>
+<body>
+  <p>This is inside a frame, like a payment provider's card form.</p>
+  <label for="cn">Card number</label><input id="cn" name="cardnumber" autocomplete="cc-number" inputmode="numeric">
+  <div class="row"><div><label for="ce">Expiry</label><input id="ce" name="exp-date" autocomplete="cc-exp" placeholder="MM / YY"></div>
+    <div><label for="cc">CVC</label><input id="cc" name="cvc" autocomplete="cc-csc" inputmode="numeric" maxlength="4"></div></div>
+<script src="/try.js"></script>
+</body>
+</html>
