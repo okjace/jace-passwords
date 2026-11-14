@@ -29,13 +29,16 @@ SECRET = "test-secret-" + "x" * 40
 site.VAULT_KEY_SECRET = SECRET
 SUB = "user-1"
 SYNC = {"payload": None, "version": 0}
+SYNC2 = {"payload": None, "version": 0}  # a second account ("good2"), to test switching accounts
 
 
 def fake_jace(method, path, token=None, form=None, body=None, headers=None):
-    if token != "good":
+    if token not in ("good", "good2"):
         return 401, {"error": "invalid_token"}
+    SYNC = globals()["SYNC"] if token == "good" else SYNC2
     if path == "/api/oauth/userinfo":
-        return 200, {"sub": SUB, "username": "tester", "name": "Tester"}
+        return 200, ({"sub": SUB, "username": "tester", "name": "Tester"} if token == "good"
+                     else {"sub": "user-2", "username": "reviewer", "name": "Reviewer"})
     if path == "/api/oauth/sync":
         return 200, {"collections": ["pw-vault"], "records": []}
     if path == "/api/oauth/sync/pw-vault":

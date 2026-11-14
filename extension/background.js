@@ -55,6 +55,8 @@ async function signInWithJace() {
   await B.storage.local.set({ jaceToken: { token, expires: Date.now() + (+frag.get("expires_in") || 86400) * 1000 } });
   const engine = await engineReady;
   engine.forgetUser();
+  await engine.matchAccount(); // a different account: its own vault, not the last one's
+  await rememberSession(engine);
   await fetchVault(engine);
   return { ok: true };
 }

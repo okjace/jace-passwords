@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.4
+
+- **Switching Jace accounts works:** in the extension and the web app, signing in with a different Jace account now opens that account's vault instead of the last one's. Each account's vault is kept separately on the device (still encrypted, with its own settings such as a remembered master password) and comes back when that account signs in again.
+
 ## 1.6.3
 
 - **Field reports need two people to agree** before they apply for everyone (okjace's apply right away). Your own report still applies for you immediately, and the extension now tells you whether it applies for everyone yet.

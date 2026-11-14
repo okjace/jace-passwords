@@ -636,6 +636,23 @@
 
   // ---------- the API the app window calls (server.py's /api/*), answered in the page ----------
   let autoOpened = false;
+  // One vault per Jace account on this device: when someone else signs in, the vault here is put aside (still
+  // encrypted, with its own device settings such as a remembered master password) and theirs is used. It comes
+  // back when that account signs in again.
+  async function matchAccount() {
+    const u = await me(), f = store.get("vault");
+    if (!u || !f?.account?.id || f.account.id === u.id) return false;
+    lock();
+    clearTimeout(syncTimer);
+    store.set("saved:" + f.account.id, { vault: f, device: device() });
+    const theirs = store.get("saved:" + u.id);
+    store.set("vault", theirs?.vault || null);
+    store.set("device", theirs?.device || {});
+    if (theirs) store.set("saved:" + u.id, null);
+    Object.assign(sync, { status: "idle", at: null, error: null, version: device().syncVersion || 0 });
+    autoOpened = false;
+    return true;
+  }
   async function autoOpen() {
     if (autoOpened || V.data || !exists()) return;
     autoOpened = true;
@@ -643,6 +660,7 @@
     if (mode === "device" || (mode === "jace" && (await me())) || remembered()) { try { await unlock(null, null); scheduleSync(100); } catch { /* lock screen has a button */ } }
   }
   async function state() {
+    await matchAccount();
     await autoOpen();
     const st = { app: "Jace Passwords", version: VERSION, web: !!env.web, extension: !!env.extension, setup: exists(), locked: !V.data, hasSecretKey: !!device().secretKey, keyMode: exists() ? keyMode(store.get("vault")) : null,
       remembered: remembered(), usesSecretKey: exists() ? usesSecretKey(store.get("vault")) : null,
@@ -994,7 +1012,7 @@
 
   async function extApi(route, body = {}) {
     checkAutoLock();
-    if (route === "status") await autoOpen();
+    if (route === "status") { await matchAccount(); await autoOpen(); }
     if (route === "status") return { locked: !V.data, setup: exists(), account: await me(), version: VERSION, keyMode: exists() ? keyMode(store.get("vault")) : null, remembered: remembered() };
     if (route === "unlock") { await unlock(body.password || "", null); scheduleSync(100); return { ok: true }; }
     if (route === "lock") { lock(); return { ok: true }; }
@@ -1122,7 +1140,7 @@
   };
   const apiSafe = explain(api, (m, r) => `doing ${m} ${String(r).split("?")[0]}`);
   const extSafe = explain(extApi, (r) => `doing ${r}`);
-  return { api: apiSafe, ext: extSafe, fetchRemote, me, forgetUser, lock, isUnlocked: () => !!V.data, exists, keyMode: () => (exists() ? keyMode(store.get("vault")) : null),
+  return { api: apiSafe, ext: extSafe, fetchRemote, matchAccount, me, forgetUser, lock, isUnlocked: () => !!V.data, exists, keyMode: () => (exists() ? keyMode(store.get("vault")) : null),
     exportSession, restoreSession, checkAutoLock, syncNow, _vault: V };
   } // create
 

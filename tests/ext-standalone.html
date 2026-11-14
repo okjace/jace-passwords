@@ -20,7 +20,7 @@ window.chrome = {
     async launchWebAuthFlow({ url }) {
       const u = new URL(url);
       if (!/^https:\/\/abcdefgh\.chromiumapp\.org\/$/.test(u.searchParams.get("ext_redirect"))) throw new Error("bad redirect");
-      return "https://abcdefgh.chromiumapp.org/#token=good&expires_in=3600";
+      return `https://abcdefgh.chromiumapp.org/#token=${window.__nextToken || "good"}&expires_in=3600`;
     },
   },
 };
@@ -105,6 +105,17 @@ window.fetch = (url, opts) => realFetch(String(url).replace("https://jace-passwo
     step("15h content can't change it", (await handle({ type: "standalone-remember", on: true, password: "pw-ext-1" }, tab)).error);
     await handle({ type: "jace-signout" }, popup);
     step("16 after sign-out", (await handle({ type: "status" }, tab)).error);
+    // switching accounts: another account signs in, then the first one again
+    window.__nextToken = "good2";
+    await handle({ type: "jace-signin" }, popup);
+    const other = await handle({ type: "status" }, tab);
+    step("17 another account doesn't see the first one's vault", { account: other.account?.username, error: other.error || null, locked: other.locked ?? null });
+    await handle({ type: "jace-signout" }, popup);
+    window.__nextToken = "good";
+    await handle({ type: "jace-signin" }, popup);
+    const back = await handle({ type: "status" }, tab);
+    step("18 the first account gets its own vault back", { account: back.account?.username, setup: back.setup, keyMode: back.keyMode, remembered: back.remembered });
+    await handle({ type: "jace-signout" }, popup);
   } catch (e) { step("CRASH", e.stack || String(e)); }
   document.getElementById("out").textContent = log.join("\n");
 })();
