@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.1
+
+- The extension no longer asks for the `scripting` permission, which it didn't use.
+- The website's front page is now an introduction; the web app is at jace-passwords.vercel.app/app.
+
 ## 1.6.0
 
 - **Report a field:** if autofill gets a field wrong (or misses it), pick **Wrong kind of field? Report it** at the bottom of the fill list, or right-click the field → **What is this field?**, and choose what it is: email or username, password, 2FA code, name, address, card number, "nothing to fill here" and more. It applies for you right away and, signed in with Jace, for everyone. Reports are kept by Jace and only name the site and the field, never what's typed in it. The extension downloads everyone's reports as one list, so it never tells anyone which sites you visit.

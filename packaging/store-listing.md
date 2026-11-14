@@ -47,7 +47,6 @@ Homepage / support URL: **https://github.com/okjace/jace-passwords** (support: i
 | `storage` | Keeps the encrypted vault, settings and the user's Jace sign-in on the device. |
 | `identity` | Opens the "Sign in with Jace" window (OAuth). |
 | `contextMenus` | Right-click "Generate password" and "Fill" menu items. |
-| `scripting` | Fills the item the user picks into the current page from the popup and menu. |
 | `activeTab` | Fills the tab the user is on when they use the popup or keyboard shortcut. |
 | Host `http://127.0.0.1:47620/*` | Talks to the Jace Passwords desktop app on the same computer, if the user connects the extension to it. |
 | Host `https://jace-passwords.vercel.app/*` | The extension's own service: Jace sign-in, encrypted vault sync, and the vault key for vaults that unlock with a Jace account. |
