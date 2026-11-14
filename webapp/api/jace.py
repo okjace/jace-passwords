@@ -180,22 +180,22 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
                 ext = ""
             clear_state = self._cookie(STATE_COOKIE, "", 0)
             if not state or not hmac.compare_digest(state, q.get("state", "")):
-                return self._redirect("/?signin_error=" + urllib.parse.quote("That sign-in didn't match. Please try again."), [clear_state])
+                return self._redirect("/app?signin_error=" + urllib.parse.quote("That sign-in didn't match. Please try again."), [clear_state])
             if q.get("error") and silent == "1":
-                return self._redirect("/", [clear_state])  # not signed in to Jace (yet): show the button, no error
+                return self._redirect("/app", [clear_state])  # not signed in to Jace (yet): show the button, no error
             if q.get("error"):
-                return self._redirect("/?signin_error=" + urllib.parse.quote(q.get("error_description") or q["error"]), [clear_state])
+                return self._redirect("/app?signin_error=" + urllib.parse.quote(q.get("error_description") or q["error"]), [clear_state])
             status, tok = _jace("POST", "/api/oauth/token", form={
                 "grant_type": "authorization_code", "code": q.get("code", ""), "redirect_uri": REDIRECT,
                 "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET, "code_verifier": verifier})
             if status != 200 or not tok.get("access_token"):
                 msg = tok.get("error_description") or tok.get("error") or "Jace didn't send a sign-in token."
-                return self._redirect("/?signin_error=" + urllib.parse.quote(msg), [clear_state])
+                return self._redirect("/app?signin_error=" + urllib.parse.quote(msg), [clear_state])
             max_age = min(int(tok.get("expires_in") or 30 * 86400), 365 * 86400)
             if ext:  # back to the extension's sign-in window: the token travels in the fragment only
                 frag = urllib.parse.urlencode({"token": tok["access_token"], "expires_in": max_age})
                 return self._redirect(f"{ext}#{frag}", [clear_state])
-            return self._redirect("/", [clear_state, self._cookie(TOKEN_COOKIE, _sign(tok["access_token"]), max_age)])
+            return self._redirect("/app", [clear_state, self._cookie(TOKEN_COOKIE, _sign(tok["access_token"]), max_age)])
         if route == "me":
             token = self._token()
             if not token:

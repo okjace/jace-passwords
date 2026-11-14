@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jace Passwords</title>
+<meta name="description" content="A password manager tied to your Jace account: passwords, passkeys, 2FA codes, cards and addresses, end-to-end encrypted and filled in for you.">
+<link rel="icon" href="/icon.svg">
+<style>
+  :root { --bg: #f4f5f7; --panel: #fff; --panel2: #eceef1; --line: #dfe2e7; --text: #16181d; --muted: #5d6470;
+    --accent: #1f9d5a; --on-accent: #fff; --soft: color-mix(in srgb, #1f9d5a 12%, transparent); --shadow: 0 18px 60px rgba(16,20,28,.12); color-scheme: light; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111317; --panel: #1c1f26; --panel2: #23272f; --line: #2a2f38; --text: #e6e8eb; --muted: #8b919c;
+    --accent: #3ddc84; --on-accent: #0c1410; --soft: color-mix(in srgb, #3ddc84 13%, transparent); --shadow: 0 18px 60px rgba(0,0,0,.55); color-scheme: dark; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 Geist, system-ui, -apple-system, "Segoe UI", Arial, sans-serif; }
+  a { color: var(--accent); }
+  code { font: 13px ui-monospace, Menlo, Consolas, monospace; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 5px; white-space: nowrap; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 0; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; color: var(--text); text-decoration: none; }
+  .brand img { width: 30px; height: 30px; }
+  nav { display: flex; gap: 18px; align-items: center; font-size: 15px; }
+  nav a { color: var(--muted); text-decoration: none; } nav a:hover { color: var(--text); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 20px; border-radius: 12px; font-weight: 700;
+    text-decoration: none; border: 1px solid var(--line); background: var(--panel); color: var(--text); white-space: nowrap; }
+  .btn:hover { background: var(--panel2); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .btn.primary:hover { filter: brightness(1.06); }
+  .btn.small { padding: 8px 14px; font-size: 14px; border-radius: 10px; }
+  .hero { padding: 56px 0 30px; text-align: center; }
+  .pill { display: inline-block; padding: 5px 12px; border-radius: 999px; background: var(--soft); color: var(--accent); font-weight: 700; font-size: 13px; }
+  h1 { font-size: clamp(36px, 6vw, 60px); line-height: 1.05; letter-spacing: -1.5px; margin: 18px auto 16px; max-width: 820px; }
+  .lead { font-size: clamp(17px, 2.2vw, 20px); color: var(--muted); max-width: 680px; margin: 0 auto 28px; }
+  .ctas { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .shot { margin: 46px auto 0; max-width: 1000px; border-radius: 18px; overflow: hidden; border: 1px solid var(--line); box-shadow: var(--shadow); }
+  .shot img { display: block; width: 100%; height: auto; }
+  section { padding: 64px 0; }
+  h2 { font-size: clamp(28px, 4vw, 38px); letter-spacing: -.8px; line-height: 1.15; margin: 0 0 10px; }
+  .sub { color: var(--muted); margin: 0 0 30px; max-width: 640px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
+  .card .ic { font-size: 26px; } .card h3 { margin: 8px 0 4px; font-size: 17px; } .card p { margin: 0; color: var(--muted); font-size: 15px; }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center; }
+  .split .shot { margin: 0; }
+  ul.checks { list-style: none; padding: 0; margin: 0; } ul.checks li { padding: 8px 0 8px 30px; position: relative; }
+  ul.checks li::before { content: "✓"; position: absolute; left: 0; top: 8px; width: 20px; height: 20px; border-radius: 6px; background: var(--soft); color: var(--accent); font-weight: 800; font-size: 13px; display: grid; place-items: center; }
+  .dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
+  .dl .card { display: flex; flex-direction: column; gap: 10px; } .dl .card .btn { margin-top: auto; align-self: flex-start; }
+  footer { border-top: 1px solid var(--line); padding: 28px 0 44px; color: var(--muted); font-size: 14px; display: flex; gap: 18px; flex-wrap: wrap; justify-content: space-between; }
+  footer a { color: var(--muted); }
+  @media (max-width: 760px) { .split { grid-template-columns: 1fr; } nav .hide-sm { display: none; } .hero { padding-top: 32px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="brand" href="/"><img src="/icon.svg" alt="">Jace Passwords</a>
+    <nav><a class="hide-sm" href="#features">Features</a><a class="hide-sm" href="#security">Security</a><a class="hide-sm" href="#get">Download</a>
+      <a class="btn small primary" href="/app">Open web app</a></nav>
+  </header>
+
+  <div class="hero">
+    <span class="pill">Free · Open source · Works with your Jace account</span>
+    <h1>Every password, passkey and code. One vault.</h1>
+    <p class="lead">Jace Passwords keeps your logins, passkeys, 2FA codes, cards and addresses end-to-end encrypted, syncs them with your Jace account, and fills them in for you on every site.</p>
+    <div class="ctas"><a class="btn primary" href="/app">Open the web app</a><a class="btn" href="#get">Get the extension and desktop app</a></div>
+    <div class="shot"><img src="/img/vault.png" width="1280" height="800" alt="The Jace Passwords app: a login with its password, a 2FA code and a passkey"></div>
+  </div>
+</div>
+
+<section id="features"><div class="wrap">
+  <h2>Everything a password manager should do</h2>
+  <p class="sub">Inspired by the best ones, tied to your Jace account.</p>
+  <div class="grid">
+    <div class="card"><div class="ic">🔑</div><h3>Autofill everywhere</h3><p>Logins, cards (dropdowns and checkout frames too), addresses, email and phone, filled with one click.</p></div>
+    <div class="card"><div class="ic">🗝️</div><h3>Passkeys</h3><p>Create and use passkeys on any site. They live in your vault, linked to their logins, and sync to your other devices.</p></div>
+    <div class="card"><div class="ic">🔢</div><h3>2FA codes built in</h3><p>Add a site's authenticator code to its login, and it fills itself right after your password.</p></div>
+    <div class="card"><div class="ic">✉️</div><h3>Codes from your email</h3><p>Sent a sign-in code by email? It's offered in the code field, read from your Gmail, Outlook or Proton Mail in your browser.</p></div>
+    <div class="card"><div class="ic">🎲</div><h3>Password generator</h3><p>Random passwords, passphrases and PINs, with "only use" and "never use" characters for picky sites.</p></div>
+    <div class="card"><div class="ic">🛡️</div><h3>Watchtower</h3><p>Weak, reused and breached passwords, plus sites where you could turn on 2FA or passkeys.</p></div>
+    <div class="card"><div class="ic">📥</div><h3>Easy to move in</h3><p>Import from Bitwarden, 1Password, Proton Pass and others, passkeys included where they can be exported.</p></div>
+    <div class="card"><div class="ic">🧭</div><h3>Gets better for everyone</h3><p>Autofill guessed a field wrong? Report it once and it's recognized correctly for every Jace Passwords user.</p></div>
+  </div>
+</div></section>
+
+<section id="security"><div class="wrap split">
+  <div>
+    <h2>Only you can open your vault</h2>
+    <p class="sub">Your vault is encrypted on your device before it's saved or synced.</p>
+    <ul class="checks">
+      <li>AES-256-GCM encryption, with a key made from your master password (scrypt).</li>
+      <li>End-to-end: your master password never leaves your devices, so nobody else, including us, can read your vault.</li>
+      <li>Prefer no password? Unlock with your Jace account, or let a device remember it. You choose, and the app tells you the trade-off.</li>
+      <li>No ads, no analytics, no tracking. Breach checks send only part of a hash, never a password.</li>
+      <li>Every line of code is public on <a href="https://github.com/okjace/jace-passwords">GitHub</a>.</li>
+    </ul>
+  </div>
+  <div class="shot"><img src="/img/autofill.png" width="1280" height="800" alt="A sign-in code from email offered in a site's verification field"></div>
+</div></section>
+
+<section id="get"><div class="wrap">
+  <h2>Get Jace Passwords</h2>
+  <p class="sub">Sign in with the same Jace account everywhere and they all open the same vault.</p>
+  <div class="dl">
+    <div class="card"><div class="ic">🌐</div><h3>Web app</h3><p class="muted">Use it in any browser, nothing to install.</p><a class="btn primary small" href="/app">Open the web app</a></div>
+    <div class="card"><div class="ic">🦊</div><h3>Firefox and Jace Browser</h3><p class="muted">Autofill, passkeys and codes. Install the signed <code>.xpi</code>; it updates itself.</p><a class="btn small" href="https://github.com/okjace/jace-passwords/releases/latest">Get the extension</a></div>
+    <div class="card"><div class="ic">🧩</div><h3>Chrome, Edge and Brave</h3><p class="muted">Coming to the Chrome Web Store. Until then, load the <code>-chrome.zip</code> from the latest release.</p><a class="btn small" href="https://github.com/okjace/jace-passwords/releases/latest">Get the extension</a></div>
+    <div class="card"><div class="ic">💻</div><h3>Desktop app</h3><p class="muted">Windows, macOS and Linux, with a setup wizard. Updates itself.</p><a class="btn small" href="https://github.com/okjace/jace-passwords/releases/latest">Download</a></div>
+  </div>
+</div></section>
+
+<div class="wrap">
+  <footer>
+    <span>Jace Passwords · made by okjace for <a href="https://jaceo.vercel.app">Jace</a></span>
+    <span><a href="/privacy.html">Privacy policy</a> · <a href="https://github.com/okjace/jace-passwords">Source code</a> · <a href="https://github.com/okjace/jace-passwords/issues">Support</a></span>
+  </footer>
+</div>
+</body>
+</html>

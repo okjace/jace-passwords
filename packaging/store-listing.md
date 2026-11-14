@@ -71,7 +71,7 @@ Then tick all three certifications: not sold to third parties; not used for unre
 **Firefox.** The manifest already declares it (`data_collection_permissions`): *authentication info*, *personally identifying info*, *financial and payment info*. These go, encrypted, to the user's own Jace account for sync. Email codes and website content never leave the browser, so they aren't declared.
 
 **Notes for reviewers** (paste into "Notes to reviewer" / "Test instructions"):
-> Jace Passwords works on its own: click the toolbar button → Sign in with Jace (free account at https://jaceo.vercel.app). Create a vault at https://jace-passwords.vercel.app, then the extension fills its logins on any sign-in page. The vault is encrypted on the device (AES-256-GCM; key from scrypt of the master password). Source code is not minified or bundled: every file in the package is the readable source from https://github.com/okjace/jace-passwords (extension/ plus jace_passwords/web/webvault.js and words.js, copied into vault/).
+> Jace Passwords works on its own: click the toolbar button → Sign in with Jace (free account at https://jaceo.vercel.app). Create a vault at https://jace-passwords.vercel.app/app, then the extension fills its logins on any sign-in page. The vault is encrypted on the device (AES-256-GCM; key from scrypt of the master password). Source code is not minified or bundled: every file in the package is the readable source from https://github.com/okjace/jace-passwords (extension/ plus jace_passwords/web/webvault.js and words.js, copied into vault/).
 
 ## Step by step
 

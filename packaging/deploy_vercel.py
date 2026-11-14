@@ -28,6 +28,10 @@ PROJECT = os.environ.get("VERCEL_PROJECT", "jace-passwords")
 def build() -> Path:
     shutil.rmtree(OUT, ignore_errors=True)
     shutil.copytree(ROOT / "jace_passwords" / "web", OUT)
+    # On the website the front page is the introduction (home.html) and the app is /app. The desktop app
+    # keeps serving index.html (the app) itself, so the swap happens only here.
+    (OUT / "index.html").replace(OUT / "app.html")
+    (OUT / "home.html").replace(OUT / "index.html")
     shutil.copytree(ROOT / "webapp" / "api", OUT / "api")
     shutil.copy2(ROOT / "webapp" / "vercel.json", OUT / "vercel.json")
     for junk in OUT.rglob("__pycache__"):

@@ -296,7 +296,7 @@ async function handle(msg, sender) {
       const st = await engine.api("GET", "state").catch(() => ({}));
       return { keyMode: st.keyMode, remembered: st.remembered, needsSecretKey: st.needsSecretKey, jace: st.jace };
     }
-    case "open-web": B.tabs.create({ url: WEB + "/" }); return { ok: true };
+    case "open-web": B.tabs.create({ url: WEB + "/app" }); return { ok: true };
     case "latest-version": {
       try { return await (await fetch(`${WEB}/api/jace/ext-latest`)).json(); } catch { return {}; }
     }
