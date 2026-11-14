@@ -180,10 +180,23 @@ async function backgroundInbox(key, siteName) {
   const tab = await B.tabs.create({ url: MAILBOXES[key].inbox, active: false }).catch(() => null);
   if (!tab) return null;
   try {
-    for (let i = 0; i < 20; i++) { // up to ~20 s for the inbox to load
-      await new Promise((res) => setTimeout(res, 1000));
+    const wait = () => new Promise((res) => setTimeout(res, 1000));
+    let loaded = false;
+    for (let i = 0; i < 20 && !loaded; i++) { // up to ~20 s for the inbox to load
+      await wait();
       const r = await scanTab(tab.id, siteName);
-      if (r && (r.codes.length || (r.rows && i >= 3))) return r.codes; // found one, or the list has loaded
+      if (r && r.codes.length) return r.codes;
+      loaded = !!(r && r.rows && i >= 3);
+    }
+    if (!loaded) return [];
+    // No code in the list (Proton Mail shows no preview of the text, and a code email may have no subject):
+    // open the newest message in this background tab and read it. Never done in a tab you have open.
+    const opened = await withTimeout(B.tabs.sendMessage(tab.id, { type: "email-codes-open-newest" }, { frameId: 0 }), 800);
+    if (!opened || !opened.opened) return [];
+    for (let i = 0; i < 8; i++) {
+      await wait();
+      const r = await scanTab(tab.id, siteName);
+      if (r && r.codes.length) return r.codes;
     }
     return [];
   } finally {

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.7
+
+- **Email codes from Proton Mail:** Proton's inbox list shows no preview of the message text, so a code email (especially one with no subject) had nothing to read. When the extension checks your inbox in a background tab and the list shows no code, it now opens the newest message there and reads the code from it. (Proton then marks that message as read.) An inbox tab you have open yourself is never clicked.
+
 ## 1.6.6
 
 - **Signing in asks first:** pressing Sign in with Jace (web app, extension, and the desktop app outside Jace OS) now always shows Jace's "Allow Jace Passwords to use your account?" page, even in Jace Browser, which used to approve it by itself.

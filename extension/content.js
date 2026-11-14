@@ -583,6 +583,8 @@
   const MAIL = { "mail.google.com": "Gmail", "outlook.live.com": "Outlook", "outlook.office.com": "Outlook",
     "outlook.office365.com": "Outlook", "mail.proton.me": "Proton Mail" };
   const { codesIn } = globalThis.JPMail;
+  const mailRows = () => [...document.querySelectorAll("tr.zA, [role='listbox'] [role='option'], [data-shortcut-target='item-container'], .item-container")]
+    .filter((el) => el.getClientRects().length > 0);
   function scanMail(siteName) {
     const provider = MAIL[location.hostname];
     if (!provider || window !== window.top) return { codes: [], rows: 0 };
@@ -601,7 +603,7 @@
     const subject = txt(document.querySelector("h2.hP, [data-testid='message-header-expanded:subject'], [data-testid='conversation-header:subject'], [role='heading'][aria-level='2']"));
     bodies.slice(-3).forEach((b) => add(txt(b), subject || "Open message", 0, true));
     // the newest messages in the list
-    const rows = [...document.querySelectorAll("tr.zA, [role='listbox'] [role='option'], [data-shortcut-target='item-container'], .item-container")].filter(shown).slice(0, 8);
+    const rows = mailRows().slice(0, 8);
     rows.forEach((r, n) => {
       const unread = r.classList.contains("zE") || /unread/i.test(r.className + " " + (r.getAttribute("aria-label") || ""));
       const label = txt(r.querySelector(".bog, [data-testid='message-row:subject'], [title]")) || txt(r).split("\n").slice(0, 2).join(" · ");
@@ -613,6 +615,13 @@
   }
   if (MAIL[location.hostname] && window === window.top) {
     B.runtime.onMessage.addListener((msg, _sender, reply) => {
+      // Only asked of an inbox the extension opened itself in a background tab: open the newest message, for
+      // services whose list shows no preview of the text (Proton Mail), so its code can be read.
+      if (msg.type === "email-codes-open-newest") {
+        const first = mailRows()[0];
+        if (first) first.click();
+        return reply({ opened: !!first });
+      }
       if (msg.type !== "email-codes-scan") return;
       try { reply(scanMail(msg.siteName || "")); } catch { reply({ codes: [], rows: 0 }); }
     });
