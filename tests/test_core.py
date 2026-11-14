@@ -1,4 +1,4 @@
-import json, tempfile, time, unittest
+import json, string, tempfile, time, unittest
 from pathlib import Path
 from jace_passwords import crypto, totp, generator, security, importers
 from jace_passwords.vault import Vault, VaultError
@@ -96,6 +96,14 @@ class Core(unittest.TestCase):
         secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"  # "12345678901234567890"
         self.assertEqual(totp.code(secret, at=59)["code"], "287082")
         self.assertEqual(totp.code(f"otpauth://totp/ACME:me?secret={secret}&digits=8&issuer=ACME", at=59)["code"], "94287082")
+
+    def test_generator_only_and_exclude(self):
+        pw = generator.generate({"only": "ab1!", "length": 40})
+        self.assertTrue(set(pw) <= set("ab1!"))
+        pw = generator.generate({"exclude": "aeiouAEIOU0123456789", "length": 60})
+        self.assertFalse(set(pw) & set("aeiouAEIOU0123456789"))
+        with self.assertRaises(ValueError):
+            generator.generate({"exclude": string.ascii_letters + string.digits + generator.SYMBOLS})
 
     def test_generator(self):
         p = generator.random_password(24)

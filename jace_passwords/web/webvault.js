@@ -402,6 +402,13 @@
     if (o.symbols !== false) pools.push(D.symbols);
     if (!pools.length) pools.push("abcdefghijklmnopqrstuvwxyz");
     if (o.avoidAmbiguous) pools = pools.map((p) => [...p].filter((c) => !"Il1O0o|`'\"".includes(c)).join(""));
+    // only: just these characters (a site's allowed list); exclude: never these (generator.py)
+    const uniq = (s) => [...new Set([...String(s || "")].filter((c) => c.trim() && c >= " "))];
+    const drop = new Set(uniq(o.exclude));
+    const only = uniq(o.only).filter((c) => !drop.has(c));
+    if (only.length) return Array.from({ length }, () => choice(only)).join("");
+    pools = pools.map((p) => [...p].filter((c) => !drop.has(c)).join("")).filter(Boolean);
+    if (!pools.length) throw new ApiError("Every character is excluded. Allow a few more.");
     const all = pools.join("");
     const chars = pools.slice(0, length).map((p) => choice([...p]));
     while (chars.length < length) chars.push(choice([...all]));

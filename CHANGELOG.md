@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0
+
+- **Codes from your email:** when a site emails you a sign-in code, the extension's 2FA menu offers it, read from your Gmail, Outlook or Proton Mail tab in the same browser. Keep your inbox open in a tab. It's read only when you open that menu, and nothing is sent anywhere.
+- **Password generator:** **Only use these characters** (for sites that allow just a few) and **Never use these characters** (for sites that reject some symbols).
+- **The fill list no longer gets cut off:** it fits in the space you have, scrolls when needed, and page styles can't push it off the screen.
+
 ## 1.3.5
 
 - **Remember your master password in the extension:** when you unlock in the extension's popup, tick **Remember my password on this browser**. After that it opens by itself; **Forget password** at the bottom of the popup turns it off.

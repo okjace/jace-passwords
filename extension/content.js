@@ -305,7 +305,7 @@
     :host { all: initial; }
     .icon { position: fixed; z-index: 2147483646; width: 22px; height: 22px; border: 0; padding: 3px; border-radius: 6px; background: transparent; cursor: pointer; display: none; }
     .icon:hover { background: rgba(109,93,252,.12); }
-    .menu { position: fixed; z-index: 2147483647; width: 300px; max-height: 340px; overflow: auto; background: #fff; color: #16181d; border: 1px solid #dfe2e7;
+    .menu { position: fixed; z-index: 2147483647; width: 300px; max-width: calc(100vw - 16px); box-sizing: border-box; max-height: 340px; overflow: auto; overscroll-behavior: contain; background: #fff; color: #16181d; border: 1px solid #dfe2e7;
       border-radius: 14px; box-shadow: 0 12px 40px rgba(20,20,50,.22); font: 13px/1.4 system-ui, sans-serif; display: none; padding: 6px; }
     @media (prefers-color-scheme: dark) { .menu { background: #1c1f26; color: #e6e8eb; border-color: #2a2f38; } .it:hover, .it:focus { background: rgba(61,220,132,.14) !important; } .muted { color: #8b919c !important; } }
     .hd { display: flex; align-items: center; gap: 8px; padding: 6px 8px 8px; font-weight: 700; font-size: 12px; }
@@ -334,7 +334,7 @@
   const menu = root.querySelector(".menu");
   let current = null; // { el, kind }
 
-  function attach() { if (!host.isConnected) (document.body || document.documentElement).appendChild(host); }
+  function attach() { if (!host.isConnected) document.documentElement.appendChild(host); }
 
   function placeIcon() {
     if (!current || !current.el.isConnected) { iconBtn.style.display = "none"; return; }
@@ -344,11 +344,22 @@
     iconBtn.style.top = `${r.top + (r.height - 22) / 2}px`;
     if (menu.style.display === "block") placeMenu();
   }
+  // Below the field if it fits, else wherever there's more room; never taller than that room, so the
+  // list scrolls instead of running off the window (short windows, small sign-in frames).
   function placeMenu() {
     const r = current.el.getBoundingClientRect();
-    menu.style.left = `${Math.max(8, Math.min(r.left, innerWidth - 310))}px`;
-    const mh = Math.min(menu.scrollHeight || 120, 340);
-    menu.style.top = `${r.bottom + 6 + mh > innerHeight && r.top - mh - 6 > 0 ? r.top - mh - 6 : r.bottom + 6}px`;
+    const vw = document.documentElement.clientWidth || innerWidth, vh = document.documentElement.clientHeight || innerHeight;
+    const w = Math.min(300, vw - 16);
+    menu.style.left = `${Math.max(8, Math.min(r.left, vw - w - 8))}px`;
+    const below = vh - r.bottom - 14, above = r.top - 14;
+    menu.style.maxHeight = "none";
+    const want = Math.min(menu.scrollHeight || 120, 340);
+    const down = below >= want || below >= above;
+    const room = Math.max(96, Math.min(340, down ? below : above));
+    const h = Math.min(want, room);
+    menu.style.maxHeight = `${room}px`;
+    const top = down ? r.bottom + 6 : r.top - h - 6;
+    menu.style.top = `${Math.max(4, Math.min(top, vh - h - 4))}px`;
   }
   const hideMenu = () => (menu.style.display = "none");
 
@@ -389,6 +400,9 @@
     if (group === "totp") {
       html += `<button class="it" data-totp="1"><span class="tile" style="background:#12a26b">🔢</span><span class="m"><div class="t">Fill 2FA code</div><div class="muted">From the login you just used</div></span></button>`;
       (m.logins || []).filter((l) => l.hasTotp).forEach((l) => (html += `<button class="it" data-id="${esc(l.id)}" data-totp-id="1">${tile(l.title)}<span class="m"><div class="t">2FA · ${esc(l.title)}</div><div class="muted">${esc(l.username)}</div></span></button>`));
+      const mail = await send({ type: "email-codes" });
+      (mail.codes || []).forEach((c) => (html += `<button class="it" data-code="${esc(c.code)}"><span class="tile" style="background:#d93f3f">✉</span><span class="m"><div class="t">${esc(c.code)} · from ${esc(c.provider)}</div><div class="muted">${esc(c.from)}</div></span></button>`));
+      if (!mail.codes?.length) html += `<div class="msg" style="font-size:12px">${mail.inboxes ? "No code in your newest emails yet. Open this menu again when it arrives." : "Emailed a code? Open Gmail, Outlook or Proton Mail in a tab and it shows up here."}</div>`;
     }
     if (group === "login" && conditional && conditional.list.length) {
       conditional.list.forEach((p, n) => (html += `<button class="it" data-pk="${n}">${tile(p.title)}<span class="m"><div class="t">🔑 Passkey · ${esc(p.title)}</div><div class="muted">${esc(p.userName)}</div></span></button>`));
@@ -433,6 +447,7 @@
       hideMenu();
       return;
     }
+    if (it.dataset.code) { fillCode(anchor, it.dataset.code); hideMenu(); return; }
     if (it.dataset.totp && !it.dataset.id) {
       const r = await send({ type: "totp-for-tab" });
       if (r.totp) fillCode(anchor, r.totp);
@@ -476,6 +491,65 @@
     if (e.key === "Escape") hideMenu();
     if (e.key === "ArrowDown" && current && e.target === current.el && e.altKey) { e.preventDefault(); openMenu(); }
   }, true);
+
+  /* ---------- sign-in codes from your inbox (Gmail, Outlook, Proton Mail tabs) ---------- */
+  // When a site emails you a code, the 2FA menu offers it. Jace Passwords reads it from your inbox tab in this
+  // browser, only when you open that menu; nothing is sent anywhere and no email password is needed.
+  const MAIL = { "mail.google.com": "Gmail", "outlook.live.com": "Outlook", "outlook.office.com": "Outlook",
+    "outlook.office365.com": "Outlook", "mail.proton.me": "Proton Mail" };
+  const okCode = (c) => c.length >= 4 && c.length <= 8 && !/^(19|20)\d\d$/.test(c) && !/^(\d)\1+$/.test(c);
+  function codesIn(text) {
+    const t = String(text || "").replace(/\s+/g, " ");
+    const kw = /(code|passcode|\bpin\b|\botp\b|one[- ]time|verif|\b2fa\b|authenticat|c[oó]digo|\bkod|验证码)/gi; // words that mean "a code", not just "sign in"
+    const cand = /(?:^|[^A-Za-z0-9-])(G-\d{6}|\d{3}[ -]\d{3}|\d{4,8}|(?=[A-Z0-9]{5,8}(?![A-Za-z0-9]))(?=[A-Z0-9]*\d)[A-Z0-9]*[A-Z][A-Z0-9]*)(?![A-Za-z0-9])/g;
+    const found = [];
+    let m;
+    while ((m = kw.exec(t)) && found.length < 3) {
+      const win = t.slice(Math.max(0, m.index - 40), m.index + m[0].length + 70);
+      if (/promo|coupon|discount|gift|voucher|referral|% off/i.test(win)) continue; // shopping codes, not sign-in codes
+      let c;
+      cand.lastIndex = 0;
+      while ((c = cand.exec(win))) {
+        const code = c[1].replace(/^G-/, "").replace(/[ -]/g, "");
+        if (okCode(code) && !found.includes(code)) found.push(code);
+      }
+    }
+    return found;
+  }
+  function scanMail(siteName) {
+    const provider = MAIL[location.hostname];
+    if (!provider || window !== window.top) return [];
+    const txt = (el) => (el?.innerText || el?.getAttribute?.("aria-label") || "").trim();
+    const shown = (el) => el.getClientRects().length > 0;
+    const out = [];
+    const add = (text, label, n, unread) => {
+      for (const code of codesIn(text)) {
+        const site = siteName && text.toLowerCase().includes(siteName) ? 1 : 0;
+        out.push({ code, provider, from: label.replace(/\s+/g, " ").trim().slice(0, 70), score: site * 4 + (unread ? 2 : 0) + (8 - Math.min(n, 8)) / 4 });
+      }
+    };
+    // the message you have open (Proton shows it in a same-origin frame)
+    const bodies = [...document.querySelectorAll(".a3s, [aria-label='Message body'], div[role='document'], [data-testid='message-content:body'], .message-content")].filter(shown);
+    for (const f of document.querySelectorAll("iframe")) { try { const b = f.contentDocument?.body; if (b && shown(f)) bodies.push(b); } catch { /* other site's frame */ } }
+    const subject = txt(document.querySelector("h2.hP, [data-testid='message-header-expanded:subject'], [data-testid='conversation-header:subject'], [role='heading'][aria-level='2']"));
+    bodies.slice(-3).forEach((b) => add(txt(b), subject || "Open message", 0, true));
+    // the newest messages in the list
+    const rows = [...document.querySelectorAll("tr.zA, [role='listbox'] [role='option'], [data-shortcut-target='item-container'], .item-container")].filter(shown).slice(0, 8);
+    rows.forEach((r, n) => {
+      const unread = r.classList.contains("zE") || /unread/i.test(r.className + " " + (r.getAttribute("aria-label") || ""));
+      const label = txt(r.querySelector(".bog, [data-testid='message-row:subject'], [title]")) || txt(r).split("\n").slice(0, 2).join(" · ");
+      add(txt(r) + " " + (r.getAttribute("aria-label") || ""), label, n, unread);
+    });
+    const best = {};
+    for (const c of out) if (!best[c.code] || best[c.code].score < c.score) best[c.code] = c;
+    return Object.values(best).sort((a, b) => b.score - a.score).slice(0, 3);
+  }
+  if (MAIL[location.hostname] && window === window.top) {
+    B.runtime.onMessage.addListener((msg, _sender, reply) => {
+      if (msg.type !== "email-codes-scan") return;
+      try { reply({ codes: scanMail(msg.siteName || "") }); } catch { reply({ codes: [] }); }
+    });
+  }
 
   /* ---------- messages from the popup / background ---------- */
   B.runtime.onMessage.addListener((msg) => {

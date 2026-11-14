@@ -187,6 +187,19 @@ async function handle(msg, sender) {
       if (!r.error && r.type === "login" && tabId !== undefined) await rememberFilled(tabId, msg.id);
       return r;
     }
+    case "email-codes": { // codes in your Gmail / Outlook / Proton Mail tabs (content.js scanMail)
+      if (!sender.tab) return { codes: [] };
+      const host = (() => { try { return new URL(sender.tab.url || sender.url || "").hostname; } catch { return ""; } })();
+      const parts = host.replace(/^www\./, "").split(".");
+      const siteName = (parts.length > 2 && parts.at(-2).length <= 3 ? parts.at(-3) : parts.at(-2)) || "";
+      const tabs = await B.tabs.query({});
+      const ask = (t) => Promise.race([
+        Promise.resolve(B.tabs.sendMessage(t.id, { type: "email-codes-scan", siteName }, { frameId: 0 })).catch(() => null),
+        new Promise((res) => setTimeout(() => res(null), 800))]);
+      const answers = (await Promise.all(tabs.filter((t) => t.id !== sender.tab.id && !t.discarded).map(ask))).filter((a) => a && a.codes);
+      const codes = answers.flatMap((a) => a.codes).sort((a, b) => b.score - a.score).slice(0, 3);
+      return { codes, inboxes: answers.length };
+    }
     case "totp-for-tab": {
       const lf = await recallFilled(tabId);
       if (!lf || Date.now() - lf.at > 10 * 60 * 1000) return { error: "none" };

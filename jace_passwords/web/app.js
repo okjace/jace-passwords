@@ -713,7 +713,9 @@ async function renderGenerator(el, intoInput = null) {
     ${history.length ? `<div class="panel"><h3>Recently generated</h3>${history.slice(0, 10).map((x) => `<div class="field" style="padding:8px 0"><div class="body mono">${pwHTML(x.password)}</div><div class="small muted">${fmtDate(x.createdAt)}</div><button class="btn ghost icon" data-a="copy" data-val="${h(x.password)}" data-what="Password copied">⧉</button></div>`).join("")}</div>` : ""}`;
   const optsHTML = () => o.type === "random" ? `
       <label class="lbl">Length: <b id="g-len-v">${o.length}</b></label><input type="range" min="8" max="64" value="${o.length}" id="g-len">
-      ${[["upper", "A–Z uppercase"], ["lower", "a–z lowercase"], ["digits", "0–9 digits"], ["symbols", "!@# symbols"], ["avoidAmbiguous", "Avoid look-alikes (l, 1, O, 0)"]].map(([k, l]) => `<label class="check"><input type="checkbox" data-o="${k}" ${o[k] ? "checked" : ""}> ${l}</label>`).join("")}`
+      ${[["upper", "A–Z uppercase"], ["lower", "a–z lowercase"], ["digits", "0–9 digits"], ["symbols", "!@# symbols"], ["avoidAmbiguous", "Avoid look-alikes (l, 1, O, 0)"]].map(([k, l]) => `<label class="check"><input type="checkbox" data-o="${k}" ${o[k] ? "checked" : ""} ${o.only?.trim() ? "disabled" : ""}> ${l}</label>`).join("")}
+      <label class="lbl" for="g-only">Only use these characters</label><input class="input mono" id="g-only" data-t="only" value="${h(o.only || "")}" placeholder="For sites that allow only certain characters, e.g. abc123!?" autocomplete="off" spellcheck="false">
+      <label class="lbl" for="g-ex">Never use these characters</label><input class="input mono" id="g-ex" data-t="exclude" value="${h(o.exclude || "")}" placeholder="For sites that reject some symbols, e.g. &lt;&gt;&amp;" autocomplete="off" spellcheck="false">`
     : o.type === "passphrase" ? `
       <label class="lbl">Words: <b id="g-len-v">${o.words}</b></label><input type="range" min="3" max="10" value="${o.words}" id="g-len">
       <label class="lbl">Separator</label><select class="input" id="g-sep">${[["-", "Hyphen -"], [".", "Period ."], ["_", "Underscore _"], [" ", "Space"], [",", "Comma ,"]].map(([v, l]) => `<option value="${h(v)}" ${o.separator === v ? "selected" : ""}>${l}</option>`).join("")}</select>
@@ -723,7 +725,9 @@ async function renderGenerator(el, intoInput = null) {
   let current = "";
   const gen = async () => {
     localStorageSet("gen", JSON.stringify(o));
-    const r = await POST("generate", { ...o, length: o.type === "pin" ? o.pinLength || 6 : o.length });
+    let r;
+    try { r = await POST("generate", { ...o, length: o.type === "pin" ? o.pinLength || 6 : o.length }); }
+    catch (x) { current = ""; $("#g-out", el).textContent = "⚠ " + x.message; $("#g-meter", el).innerHTML = ""; return; }
     current = r.password;
     $("#g-out", el).innerHTML = pwHTML(current);
     $("#g-meter", el).innerHTML = meterHTML(r.strength);
@@ -737,12 +741,18 @@ async function renderGenerator(el, intoInput = null) {
     });
     $$("[data-o]", el).forEach((c) => c.addEventListener("change", () => { o[c.dataset.o] = c.checked; gen(); }));
     $("#g-sep", el)?.addEventListener("change", (e) => { o.separator = e.target.value; gen(); });
+    $$("input[data-t]", el).forEach((t) => t.addEventListener("input", () => {
+      o[t.dataset.t] = t.value;
+      $$("[data-o]", el).forEach((c) => (c.disabled = !!(o.only || "").trim()));
+      gen();
+    }));
   };
   $$("#g-type button", el).forEach((b) => b.addEventListener("click", () => {
     o.type = b.dataset.t; $$("#g-type button", el).forEach((x) => x.classList.toggle("on", x === b)); mountOpts(); gen();
   }));
   $("#g-again", el).addEventListener("click", gen);
   $("#g-copy", el).addEventListener("click", async () => {
+    if (!current) return;
     await POST("generator-history", { password: current }).catch(() => {});
     if (intoInput) { intoInput.value = current; intoInput.dispatchEvent(new Event("input")); intoInput.type = "text"; closeGenPopover(); toast("Password set"); }
     else { copy(current, "Password copied"); renderGenerator(el); }

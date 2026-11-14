@@ -59,8 +59,18 @@ SYMBOLS = "!@#$%^&*-_=+?.:"
 AMBIGUOUS = set("Il1O0o|`'\"")
 
 
-def random_password(length=20, upper=True, lower=True, digits=True, symbols=True, avoid_ambiguous=False) -> str:
+def _unique(s: str) -> str:
+    return "".join(dict.fromkeys(c for c in str(s or "") if c.isprintable() and not c.isspace()))
+
+
+def random_password(length=20, upper=True, lower=True, digits=True, symbols=True, avoid_ambiguous=False,
+                    only: str = "", exclude: str = "") -> str:
+    """only: use just these characters (a site's allowed list). exclude: never use these."""
     length = max(4, min(128, int(length)))
+    drop = set(_unique(exclude))
+    only = "".join(c for c in _unique(only) if c not in drop)
+    if only:
+        return "".join(secrets.choice(only) for _ in range(length))
     pools = []
     if lower:
         pools.append(string.ascii_lowercase)
@@ -74,6 +84,9 @@ def random_password(length=20, upper=True, lower=True, digits=True, symbols=True
         pools.append(string.ascii_lowercase)
     if avoid_ambiguous:
         pools = ["".join(c for c in p if c not in AMBIGUOUS) for p in pools]
+    pools = [q for q in ("".join(c for c in p if c not in drop) for p in pools) if q]
+    if not pools:
+        raise ValueError("Every character is excluded. Allow a few more.")
     alphabet = "".join(pools)
     # one from each chosen set, the rest from all of them, then shuffle
     chars = [secrets.choice(p) for p in pools[:length]]
@@ -107,7 +120,8 @@ def generate(opts: dict) -> str:
     if kind == "pin":
         return pin(opts.get("length", 6))
     return random_password(opts.get("length", 20), opts.get("upper", True), opts.get("lower", True),
-                           opts.get("digits", True), opts.get("symbols", True), opts.get("avoidAmbiguous", False))
+                           opts.get("digits", True), opts.get("symbols", True), opts.get("avoidAmbiguous", False),
+                           opts.get("only", ""), opts.get("exclude", ""))
 
 
 COMMON = {"password", "123456", "12345678", "qwerty", "abc123", "letmein", "111111", "iloveyou", "admin",
