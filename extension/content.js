@@ -599,7 +599,12 @@
     };
     // the message you have open (Proton shows it in a same-origin frame)
     const bodies = [...document.querySelectorAll(".a3s, [aria-label='Message body'], div[role='document'], [data-testid='message-content:body'], .message-content")].filter(shown);
-    for (const f of document.querySelectorAll("iframe")) { try { const b = f.contentDocument?.body; if (b && shown(f)) bodies.push(b); } catch { /* other site's frame */ } }
+    let frames = 0, readable = 0;
+    for (const f of document.querySelectorAll("iframe")) {
+      if (!shown(f)) continue;
+      frames++;
+      try { const b = f.contentDocument?.body; if (b) { bodies.push(b); readable++; } } catch { /* other site's frame */ }
+    }
     const subject = txt(document.querySelector("h2.hP, [data-testid='message-header-expanded:subject'], [data-testid='conversation-header:subject'], [role='heading'][aria-level='2']"));
     bodies.slice(-3).forEach((b) => add(txt(b), subject || "Open message", 0, true));
     // the newest messages in the list
@@ -611,7 +616,8 @@
     });
     const best = {};
     for (const c of out) if (!best[c.code] || best[c.code].score < c.score) best[c.code] = c;
-    return { codes: Object.values(best).sort((a, b) => b.score - a.score).slice(0, 3), rows: rows.length + bodies.length, host: location.hostname };
+    return { codes: Object.values(best).sort((a, b) => b.score - a.score).slice(0, 3), rows: rows.length + bodies.length, host: location.hostname,
+      seen: { list: rows.length, bodies: bodies.length, frames, readable, bodyChars: bodies.reduce((n, b) => n + txt(b).length, 0) } };
   }
   if (MAIL[location.hostname] && window === window.top) {
     B.runtime.onMessage.addListener((msg, _sender, reply) => {

@@ -176,48 +176,57 @@ async function gmailFeed(siteName) {
   return out;
 }
 
-async function backgroundInbox(key, siteName) {
+async function backgroundInbox(key, siteName, trace = () => {}) {
   const tab = await B.tabs.create({ url: MAILBOXES[key].inbox, active: false }).catch(() => null);
-  if (!tab) return null;
+  if (!tab) { trace("Couldn't open a background tab."); return null; }
+  trace(`Opened ${MAILBOXES[key].name} in a background tab.`);
+  const seen = (r) => r?.seen ? `${r.seen.list} messages in the list, ${r.seen.bodies} open message(s), ${r.seen.frames} frame(s) (${r.seen.readable} readable), ${r.seen.bodyChars} characters of message text` : "no answer from the page yet";
   try {
     const wait = () => new Promise((res) => setTimeout(res, 1000));
     let loaded = false;
     for (let i = 0; i < 20 && !loaded; i++) { // up to ~20 s for the inbox to load
       await wait();
       const r = await scanTab(tab.id, siteName);
-      if (r && r.codes.length) return r.codes;
+      if (r && r.codes.length) { trace(`Found ${r.codes.map((c) => c.code).join(", ")} in the list (${seen(r)}).`); return r.codes; }
       loaded = !!(r && r.rows && i >= 3);
+      if (loaded || i === 19) trace(`After ${i + 1} s: ${seen(r)}.`);
     }
-    if (!loaded) return [];
+    if (!loaded) { trace("The inbox never showed a message list. Are you signed in to it in this browser?"); return []; }
     // No code in the list (Proton Mail shows no preview of the text, and a code email may have no subject):
     // open the newest message in this background tab and read it. Never done in a tab you have open.
     const opened = await withTimeout(B.tabs.sendMessage(tab.id, { type: "email-codes-open-newest" }, { frameId: 0 }), 800);
-    if (!opened || !opened.opened) return [];
+    if (!opened || !opened.opened) { trace("Couldn't open the newest message."); return []; }
+    trace("No code in the list, so opened the newest message.");
+    let last = null;
     for (let i = 0; i < 8; i++) {
       await wait();
-      const r = await scanTab(tab.id, siteName);
-      if (r && r.codes.length) return r.codes;
+      const r = (last = await scanTab(tab.id, siteName));
+      if (r && r.codes.length) { trace(`Found ${r.codes.map((c) => c.code).join(", ")} in the message (${seen(r)}).`); return r.codes; }
     }
+    trace(`No code in the newest message (${seen(last)}).`);
     return [];
   } finally {
     B.tabs.remove(tab.id).catch(() => {});
   }
 }
 
-async function emailCodes(siteName, fromTab) {
+async function emailCodes(siteName, fromTab, trace = () => {}) {
   const sources = await mailSources();
   const tabs = await B.tabs.query({}).catch(() => []);
   // 1. inboxes already open (any webmail tab answers; others don't)
   const open = (await Promise.all(tabs.filter((t) => t.id !== fromTab && !t.discarded).map((t) => scanTab(t.id, siteName)))).filter((a) => a && a.codes);
   let codes = open.flatMap((a) => a.codes);
+  trace(open.length ? `Open inbox tabs: ${open.map((a) => `${a.host} (${a.codes.length ? "code " + a.codes.map((c) => c.code).join(", ") : "no code"}; ${a.seen ? a.seen.list + " in list, " + a.seen.readable + "/" + a.seen.frames + " frames readable" : ""})`).join("; ")}.` : "No inbox open in a tab.");
   const openHosts = new Set(open.map((a) => MAIL_HOSTS[a.host]).filter(Boolean)); // inboxes that answered
   // 2./3. the services you turned on, without an open tab
   if (!codes.length) {
     const jobs = Object.keys(MAILBOXES).filter((k) => sources[k] && !openHosts.has(k)).map(async (k) => {
       const hit = mailCache[k];
       if (hit && Date.now() - hit.at < 15000) return hit.codes;
+      if (hit && Date.now() - hit.at >= 15000 || !hit) trace(`Checking ${MAILBOXES[k].name}…`);
       let got = k === "gmail" ? await gmailFeed(siteName) : null;
-      if (got === null) got = (await backgroundInbox(k, siteName)) || [];
+      if (k === "gmail") trace(got === null ? "Gmail's feed isn't available (no permission, or not signed in): trying a background tab." : `Gmail's feed: ${got.length ? "code " + got.map((c) => c.code).join(", ") : "no code in unread mail from the last 30 minutes"}.`);
+      if (got === null) got = (await backgroundInbox(k, siteName, trace)) || [];
       mailCache[k] = { at: Date.now(), codes: got };
       return got;
     });
@@ -330,6 +339,13 @@ async function handle(msg, sender) {
       let host = "";
       try { host = new URL(sender.tab.url || sender.url || "").hostname; } catch { /* */ }
       return emailCodes(JPMail.siteName(host), sender.tab.id);
+    }
+    case "mail-test": { // the popup's "Test now": every step, so a failure can be seen
+      if (sender.tab) return { error: "forbidden" };
+      const steps = [];
+      for (const k of Object.keys(mailCache)) delete mailCache[k];
+      const r = await emailCodes("", -1, (s) => steps.push(s));
+      return { codes: r.codes, steps };
     }
     case "mail-settings": {
       if (sender.tab) return { error: "forbidden" };

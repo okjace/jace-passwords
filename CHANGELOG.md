@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.8
+
+- **Email codes: Test now.** In the extension's toolbar button, ✉ Email codes → **Test now** checks the inboxes you turned on and lists every step (inbox loaded, messages seen, newest message opened and readable, code found), so it's clear why a code isn't found. It shows counts only, never your email text.
+
 ## 1.6.7
 
 - **Email codes from Proton Mail:** Proton's inbox list shows no preview of the message text, so a code email (especially one with no subject) had nothing to read. When the extension checks your inbox in a background tab and the list shows no code, it now opens the newest message there and reads the code from it. (Proton then marks that message as read.) An inbox tab you have open yourself is never clicked.

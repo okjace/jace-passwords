@@ -157,7 +157,8 @@ async function renderMail(main) {
   main.innerHTML = `<div style="padding:4px 2px"><p><b>✉ Codes from your email</b></p>
     <p class="muted">When a site emails you a sign-in code, the 2FA menu on that site offers it. An inbox open in a tab always works; turn on the ones to check when their tab is closed. You need to be signed in to them in this browser. Only checked when you open that menu, and nothing leaves this browser.</p>
     ${rows.map(([k, name, how]) => `<label class="mrow"><input type="checkbox" data-k="${k}" ${st.sources?.[k] ? "checked" : ""}><span><b>${name}</b><br><span class="muted">${how}</span></span></label>`).join("")}
-    <div class="err" id="err"></div><button class="btn" id="mail-done" style="margin-top:8px">Done</button></div>`;
+    <div class="err" id="err"></div><div class="row" style="display:flex;gap:8px;margin-top:8px"><button class="btn" id="mail-test" style="background:var(--panel);color:var(--text)">Test now</button><button class="btn" id="mail-done">Done</button></div>
+    <div id="mail-trace" class="muted" style="margin-top:8px;font-size:12px;white-space:pre-wrap"></div></div>`;
   main.querySelectorAll("[data-k]").forEach((c) => c.addEventListener("change", async () => {
     const k = c.dataset.k;
     if (k === "gmail" && c.checked) { // must be asked right here, while you're clicking
@@ -167,6 +168,14 @@ async function renderMail(main) {
     await send({ type: "mail-settings", set: { [k]: c.checked } });
   }));
   $("#mail-done").addEventListener("click", () => renderMain());
+  $("#mail-test").addEventListener("click", async (e) => {
+    e.target.disabled = true; e.target.textContent = "Checking…";
+    $("#mail-trace").textContent = "Checking your email (up to 30 seconds)…";
+    const r = await send({ type: "mail-test" });
+    $("#mail-trace").textContent = (r.steps || []).map((s) => "• " + s).join("\n") + "\n\n" +
+      (r.codes?.length ? "✓ Code found: " + r.codes.map((c) => c.code + " (" + c.provider + ")").join(", ") : "✗ No code found.");
+    e.target.disabled = false; e.target.textContent = "Test now";
+  });
 }
 
 async function renderGen(body) {
