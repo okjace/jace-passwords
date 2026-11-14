@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.6
+
+- **Signing in asks first:** pressing Sign in with Jace (web app, extension, and the desktop app outside Jace OS) now always shows Jace's "Allow Jace Passwords to use your account?" page, even in Jace Browser, which used to approve it by itself.
+- **Practice page:** jace-passwords.vercel.app/try has a form for every kind of autofill, and the front page links to it.
+
 ## 1.6.5
 
 - **Desktop app on Jace OS: signs in only with the computer's Jace account.** The button says "Use this computer's Jace account", and it never opens the browser. If the computer isn't signed in to Jace, it tells you to sign in in Jace OS first. On Windows, macOS and other Linux, sign-in works as before.

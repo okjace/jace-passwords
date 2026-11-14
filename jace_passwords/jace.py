@@ -80,6 +80,7 @@ class Auth:
             "state": state,
             "code_challenge": challenge,
             "code_challenge_method": "S256",
+            "prompt": "consent",  # always ask "allow Jace Passwords?", even where Jace would approve by itself
         })
 
     def finish(self, query: dict) -> dict:

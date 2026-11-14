@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Jace Passwords",
-  "version": "1.6.5",
+  "version": "1.6.6",
   "description": "Autofill logins, passkeys, 2FA codes, credit & debit cards and identities from your Jace Passwords vault.",
   "icons": {
     "16": "icons/icon16.png",

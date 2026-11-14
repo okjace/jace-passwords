@@ -165,8 +165,9 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
                 return self._send(400, {"error": "invalid_request", "error_description": "Unknown extension address."})
             params = {"response_type": "code", "client_id": CLIENT_ID, "redirect_uri": REDIRECT, "scope": "profile sync",
                       "state": state, "code_challenge": challenge, "code_challenge_method": "S256"}
-            if silent:
-                params["prompt"] = "none"
+            # Always show Jace's "allow Jace Passwords to use your account?" page when you press Sign in: Jace
+            # would otherwise approve Jace's own apps by itself in Jace Browser. (prompt=none: never a page.)
+            params["prompt"] = "none" if silent else "consent"
             url = f"{JACE_URL}/oauth/authorize?" + urllib.parse.urlencode(params)
             ext_b64 = base64.urlsafe_b64encode(ext.encode()).decode().rstrip("=")
             return self._redirect(url, [self._cookie(STATE_COOKIE, _sign(f"{state}:{verifier}:{int(silent)}:{ext_b64}"), 600)])
