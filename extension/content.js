@@ -506,12 +506,12 @@
       menu.innerHTML = `<div class="msg">Saving…</div>`;
       const r = await send({ type: "field-report", host: location.hostname, field, kind });
       const label = (REPORT_KINDS.find(([k]) => k === kind) || [])[1] || kind;
-      menu.innerHTML = `<div class="hd">${ICON} Thanks!</div><div class="msg" style="white-space:normal">This field is now <b>${esc(label)}</b>${r.shared ? " for everyone." : "."}${r.message && !r.shared ? `<br><span style="font-size:12px">${esc(r.message)}</span>` : ""}</div>`;
+      menu.innerHTML = `<div class="hd">${ICON} Thanks!</div><div class="msg" style="white-space:normal">This field is now <b>${esc(label)}</b>${r.shared && r.applied ? " for everyone." : "."}${r.shared && !r.applied ? `<br><span style="font-size:12px">For you right away, and for everyone once another person reports the same.</span>` : ""}${r.message && !r.shared ? `<br><span style="font-size:12px">${esc(r.message)}</span>` : ""}</div>`;
       placeMenu();
       const k = classify(el);
       current = k ? { el, kind: k } : null;
       placeIcon();
-      setTimeout(hideMenu, r.shared ? 1800 : 3500);
+      setTimeout(hideMenu, r.shared && r.applied ? 1800 : 3500);
       return;
     }
     if (it.dataset.pk !== undefined && conditional) {

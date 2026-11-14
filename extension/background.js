@@ -245,7 +245,7 @@ async function reportField(msg) {
   try {
     if (await token()) { // connected to the desktop app: it shares it with its Jace sign-in
       const r = await call("field-report", "POST", body);
-      return r.error ? { saved: true, shared: false, message: r.message } : { saved: true, shared: true };
+      return r.error ? { saved: true, shared: false, message: r.message } : { saved: true, shared: true, applied: !!r.applied };
     }
     const t = await jaceToken();
     if (!t) return { saved: true, shared: false, message: "Saved for you. Sign in with Jace to share it with everyone." };
@@ -254,7 +254,7 @@ async function reportField(msg) {
     const j = await r.json().catch(() => ({}));
     if (!r.ok) return { saved: true, shared: false, message: j.error_description || "Saved for you; sharing it didn't work." };
     await B.storage.local.remove("fieldRules"); // fetch the list again next time
-    return { saved: true, shared: true };
+    return { saved: true, shared: true, applied: !!j.applied };
   } catch { return { saved: true, shared: false, message: "Saved for you; you're offline, so it isn't shared yet." }; }
 }
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.3
+
+- **Field reports need two people to agree** before they apply for everyone (okjace's apply right away). Your own report still applies for you immediately, and the extension now tells you whether it applies for everyone yet.
+
 ## 1.6.2
 
 - **Safer field reports:** other people's reports can't turn a field into a password field unless it's really a password box, or into a card-number or security-code field unless it looks like one. So one wrong or hostile report can't make autofill put passwords into a public text box. Your own reports still apply exactly as you set them.
