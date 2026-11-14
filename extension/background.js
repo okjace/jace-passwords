@@ -162,6 +162,12 @@ async function handle(msg, sender) {
       try { await engine.api("POST", "unlock", { password: msg.password || "", secretKey: msg.secretKey || null }); await rememberSession(engine); return { ok: true }; }
       catch (e) { return { error: "failed", message: e.message || String(e) }; }
     }
+    case "standalone-remember": { // keep the master password on this browser (engine "remember")
+      if (sender.tab) return { error: "forbidden" };
+      const engine = await engineReady;
+      try { return await engine.api("POST", "remember", { on: !!msg.on, password: msg.password || "" }); }
+      catch (e) { return { error: "failed", message: e.message || String(e) }; }
+    }
     case "standalone-info": {
       const engine = await engineReady;
       const st = await engine.api("GET", "state").catch(() => ({}));

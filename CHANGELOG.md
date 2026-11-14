@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.5
+
+- **Remember your master password in the extension:** when you unlock in the extension's popup, tick **Remember my password on this browser**. After that it opens by itself; **Forget password** at the bottom of the popup turns it off.
+
 ## 1.3.4
 
 - **Remember my master password on this device:** Settings → Security. Your vault keeps its master password and stays encrypted, but this device opens it by itself and doesn't auto-lock. Other devices, and restoring from Jace, still need the password. Turn it off any time.

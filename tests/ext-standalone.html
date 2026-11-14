@@ -86,6 +86,18 @@ window.fetch = (url, opts) => realFetch(String(url).replace("https://jace-passwo
     step("13 sync", (await engine.syncNow()).status);
     step("14 Python reads what the extension synced", await realFetch("/verify").then((r) => r.json()));
     step("15 session survives a background restart", !!(await chrome.storage.session.get("jpSession")).jpSession?.key);
+    // remember the master password on this browser
+    await engine.api("POST", "key-mode", { mode: "password", password: "pw-ext-1", current: "" });
+    step("15a wrong password not remembered", (await handle({ type: "standalone-remember", on: true, password: "nope" }, popup)).message);
+    step("15b remembered", (await handle({ type: "standalone-remember", on: true, password: "pw-ext-1" }, popup)).remembered);
+    await handle({ type: "lock" }, popup); engine.lock();
+    step("15c popup shows Open", (await handle({ type: "standalone-info" }, popup)).remembered);
+    step("15d opens without the password", await handle({ type: "standalone-unlock" }, popup));
+    step("15e forget", (await handle({ type: "standalone-remember", on: false }, popup)).remembered);
+    engine.lock();
+    step("15f needs the password again", (await handle({ type: "standalone-unlock" }, popup)).message);
+    step("15g password still works", await handle({ type: "standalone-unlock", password: "pw-ext-1" }, popup));
+    step("15h content can't change it", (await handle({ type: "standalone-remember", on: true, password: "pw-ext-1" }, tab)).error);
     await handle({ type: "jace-signout" }, popup);
     step("16 after sign-out", (await handle({ type: "status" }, tab)).error);
   } catch (e) { step("CRASH", e.stack || String(e)); }

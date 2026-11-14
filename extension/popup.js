@@ -55,6 +55,7 @@ async function start() {
     const open = info.keyMode === "device" || info.remembered; // no password to type here
     main.innerHTML = `<form id="unlock" class="center" style="padding:10px 4px"><div style="font-size:34px">🔒</div><p><b>Unlock Jace Passwords</b></p>
       ${withJace ? `<p class="muted">This vault unlocks with your Jace account.</p>` : open ? `<p class="muted">${info.remembered ? "Your master password is remembered here." : "This vault opens without a password."}</p>` : `<input type="password" id="pw" placeholder="Master password" autofocus>`}
+      ${mode.mode === "standalone" && !withJace && !open ? `<label class="muted" style="display:flex;gap:6px;align-items:center;justify-content:center;margin-top:8px;cursor:pointer"><input type="checkbox" id="rem" style="width:auto;margin:0"> Remember my password on this browser</label>` : ""}
       ${info.needsSecretKey ? `<input id="sk" placeholder="Secret Key (J1-…)" autocomplete="off" spellcheck="false" style="margin-top:6px">` : ""}
       <div class="err" id="err"></div><button class="btn" ${open ? "autofocus" : ""}>${withJace ? "Unlock with Jace" : open ? "Open" : "Unlock"}</button></form>`;
     $("#unlock").addEventListener("submit", async (e) => {
@@ -63,7 +64,9 @@ async function start() {
       const r = mode.mode === "standalone"
         ? await send({ type: "standalone-unlock", password: $("#pw")?.value || "", secretKey: $("#sk")?.value || "" })
         : await send({ type: "unlock", password: $("#pw")?.value || "" });
-      if (r.error) { $("#err").textContent = r.message; e.submitter.textContent = withJace ? "Unlock with Jace" : open ? "Open" : "Unlock"; if (open) start(); } else start();
+      if (r.error) { $("#err").textContent = r.message; e.submitter.textContent = withJace ? "Unlock with Jace" : open ? "Open" : "Unlock"; if (open) start(); return; }
+      if ($("#rem")?.checked) await send({ type: "standalone-remember", on: true, password: $("#pw")?.value || "" });
+      start();
     });
     return;
   }
@@ -91,7 +94,14 @@ async function renderMain(mode = currentMode) {
   const main = $("#main");
   const solo = mode === "standalone";
   main.innerHTML = `<div class="tabs">${[["site", "This site"], ["search", "Search"], ["gen", "Generator"]].map(([k, l]) => `<button data-tab="${k}" class="${tabName === k ? "on" : ""}">${l}</button>`).join("")}</div><div id="body"></div>
-    <footer><a id="open">Open Jace Passwords ↗</a><a id="unpair" class="muted">${solo ? "Sign out" : "Disconnect"}</a></footer>`;
+    <footer><a id="open">Open Jace Passwords ↗</a><a id="forget" class="muted hidden" title="Ask for the master password again on this browser">Forget password</a><a id="unpair" class="muted">${solo ? "Sign out" : "Disconnect"}</a></footer>`;
+  if (solo) {
+    send({ type: "standalone-info" }).then((info) => {
+      if (!info.remembered || !$("#forget")) return;
+      $("#forget").classList.remove("hidden");
+      $("#forget").addEventListener("click", async () => { await send({ type: "standalone-remember", on: false }); $("#forget").remove(); });
+    });
+  }
   main.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => { tabName = b.dataset.tab; renderMain(); }));
   $("#open").addEventListener("click", () => send({ type: solo ? "open-web" : "open-app" }));
   $("#unpair").addEventListener("click", async () => { await send({ type: solo ? "jace-signout" : "unpair" }); start(); });
