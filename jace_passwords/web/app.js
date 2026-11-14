@@ -235,7 +235,7 @@ async function renderOnboarding(app) {
         : r?.exists ? `<button class="btn primary block" data-a="ob-restore">Unlock my vault from Jace</button>`
         : `<button class="btn primary block" data-a="ob-create">Create my vault</button>`}`;
   } else {
-    jaceBlock = `<button class="btn block jace-btn" data-a="jace-signin" style="margin-top:20px"><img src="/jace-logo.svg" alt="">Sign in with Jace</button>
+    jaceBlock = `<button class="btn block jace-btn" data-a="jace-signin" style="margin-top:20px"><img src="/jace-logo.svg" alt="">${st.jaceOs ? "Use this computer's Jace account" : "Sign in with Jace"}</button>
       <p class="small muted" style="text-align:center;margin-top:8px">Sync your encrypted vault across all your devices.</p>
       <div class="or">or</div>
       <button class="btn block" data-a="ob-create">Use on this computer only</button>`;
@@ -352,7 +352,7 @@ function renderMain(app) {
       ${st.jace ? `<div class="acct">${avatarHTML(st.jace)}<div style="min-width:0"><b>${h(st.jace.name || st.jace.username)}</b>
         <div class="sync"><span class="s ${h(sync.status)}"></span>${sync.status === "synced" ? "Synced with Jace" : sync.status === "syncing" ? "Syncing…" : sync.status === "error" ? `<span title="${h(sync.error)}">Sync problem</span>` : "Jace account"}</div></div>
         <button class="btn ghost icon" data-a="sync" title="Sync now" style="margin-left:auto">⟳</button></div>`
-        : `<button class="btn block jace-btn" data-a="jace-signin"><img src="/jace-logo.svg" alt="">Sign in with Jace to sync</button>`}
+        : `<button class="btn block jace-btn" data-a="jace-signin"><img src="/jace-logo.svg" alt="">${S.server?.jaceOs ? "Sync with this computer's Jace account" : "Sign in with Jace to sync"}</button>`}
     </div>
   </aside>`;
 

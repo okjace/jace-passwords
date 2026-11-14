@@ -217,6 +217,7 @@ class App:
             "remembered": v.remembered() if v.exists() else False,
             "needsSecretKey": bool(v.exists() and v.uses_secret_key() and not v.device().get("secretKey")),
             "jace": self.public_account(),
+            "jaceOs": jaceos.available(),
             "vaultAccount": acct,
             "sync": self.sync_state,
             "signinError": self.signin_error,
@@ -490,8 +491,11 @@ def make_handler(app: App):
         if head == "jace":
             if arg == "signin":
                 app.signin_error = None
-                if app.sign_in_with_jace_os():
-                    return {"signedIn": True}
+                if jaceos.available():  # Jace OS: only ever the computer's own Jace account, never the browser
+                    if app.sign_in_with_jace_os():
+                        return {"signedIn": True}
+                    raise ApiError("This computer isn't signed in to Jace. Sign in to your Jace account in Jace OS, "
+                                   "then try again.")
                 return {"url": app.auth.start()}
             if arg == "signout":
                 v.update_device(jace=None)

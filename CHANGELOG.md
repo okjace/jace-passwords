@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.5
+
+- **Desktop app on Jace OS: signs in only with the computer's Jace account.** The button says "Use this computer's Jace account", and it never opens the browser. If the computer isn't signed in to Jace, it tells you to sign in in Jace OS first. On Windows, macOS and other Linux, sign-in works as before.
+
 ## 1.6.4
 
 - **Switching Jace accounts works:** in the extension and the web app, signing in with a different Jace account now opens that account's vault instead of the last one's. Each account's vault is kept separately on the device (still encrypted, with its own settings such as a remembered master password) and comes back when that account signs in again.
