@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.1
+
+- **In the Firefox add-ons store:** Jace Passwords is at addons.mozilla.org/firefox/addon/jace-passwords. Every release now also goes there (as version X.1), so store installs get updates automatically. The website and app link to the store.
+
 ## 1.7.0
 
 - **Email codes from Proton Mail, take three:** Proton shows each message in a frame the page around it can't read. The extension now also runs inside Proton's message frames, finds the code there, and passes only the code up (never the message). Test now reports how much text it read inside frames.
