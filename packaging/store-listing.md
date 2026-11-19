@@ -1,5 +1,7 @@
 # Publishing Jace Passwords in the browser stores
 
+Firefox: live at https://addons.mozilla.org/firefox/addon/jace-passwords/ (approved 2026-11-19). Chrome Web Store: in review.
+
 Everything the Firefox add-ons store (addons.mozilla.org, "AMO") and the Chrome Web Store ask for,
 ready to paste. Each release's files are on its GitHub release page:
 
