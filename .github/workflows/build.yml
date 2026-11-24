@@ -298,6 +298,7 @@ jobs:
         run: |
           V=$(python3 -c "import re;print(re.search(r'APP_VERSION = \"([^\"]+)\"', open('jace_passwords/__init__.py').read()).group(1))")
           B=$(python3 -c "v='$V'.split('.')+['0','0'];print(int(v[0])*10000+int(v[1])*100+int(v[2]))")
+          set -o pipefail
           cd ios
           xcodebuild -project JacePasswords.xcodeproj -scheme JacePasswords -configuration Release -sdk iphoneos \
             -destination 'generic/platform=iOS' -derivedDataPath build \

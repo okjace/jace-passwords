@@ -82,7 +82,8 @@ struct StartView: View {
 struct CreateView: View {
     @EnvironmentObject var model: Model
     var onBack: () -> Void
-    @State private var pw = "", pw2 = ""
+    @State private var pw = ""
+    @State private var pw2 = ""
     @State private var busy = false
     @State private var error: String?
     @State private var secretKey: String?
@@ -125,7 +126,8 @@ struct CreateView: View {
 struct UnlockView: View {
     @EnvironmentObject var model: Model
     let restore: Bool, keyMode: String, needsSecretKey: Bool
-    @State private var password = "", secretKey = ""
+    @State private var password = ""
+    @State private var secretKey = ""
     @State private var rememberHere = false
     @State private var busy = false
     @State private var error: String?
@@ -326,7 +328,12 @@ struct EditLoginView: View {
     @EnvironmentObject var model: Model
     @Environment(\.dismiss) private var dismiss
     let id: String?
-    @State private var title = "", username = "", password = "", website = "", totp = "", notes = ""
+    @State private var title = ""
+    @State private var username = ""
+    @State private var password = ""
+    @State private var website = ""
+    @State private var totp = ""
+    @State private var notes = ""
     @State private var loaded = false
     var body: some View {
         let totpError: String? = totp.isEmpty ? nil : ((try? Totp.parse(totp)) == nil ? "That 2FA setup key doesn't look right." : nil)
