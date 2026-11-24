@@ -681,6 +681,13 @@
     });
   }
 
+  // The extension's tab sign-in (Safari) coming back to the Jace Passwords site: hand the token to the extension.
+  if (location.origin === "https://jace-passwords.vercel.app" && location.pathname === "/ext-auth" && window === window.top && location.hash.length > 1) {
+    const fragment = location.hash.slice(1);
+    history.replaceState(null, "", location.pathname);
+    send({ type: "ext-auth", fragment });
+  }
+
   /* ---------- messages from the popup / background ---------- */
   B.runtime.onMessage.addListener((msg) => {
     if (msg.type === "do-fill") {

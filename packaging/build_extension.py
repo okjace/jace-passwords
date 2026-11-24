@@ -13,6 +13,7 @@
                                               each version number once.
 """
 import json
+import shutil
 import sys
 import zipfile
 from pathlib import Path
@@ -38,6 +39,10 @@ def build(target: str) -> Path:
     if target == "chrome":
         manifest["background"] = {"service_worker": "background.js"}  # imports vault/*.js itself
         manifest.pop("browser_specific_settings", None)
+    elif target == "safari":  # inside the iPhone app (ios/): Safari wants a non-persistent background page
+        manifest["background"] = {"scripts": ["vault/words.js", "vault/webvault.js", "mailcodes.js", "background.js"], "persistent": False}
+        manifest.pop("browser_specific_settings", None)
+        manifest["permissions"] = [p for p in manifest["permissions"] if p != "identity"]  # Safari signs in through a tab
     else:
         manifest["background"] = {"scripts": ["vault/words.js", "vault/webvault.js", "mailcodes.js", "background.js"]}
         if target == "firefox-store":
@@ -45,6 +50,20 @@ def build(target: str) -> Path:
             manifest["version"] += STORE_SUFFIX
     version = manifest["version"]
     DIST.mkdir(exist_ok=True)
+    if target == "safari":  # a folder, not a zip: the Xcode build copies it into the Safari extension
+        out = DIST / "safari-extension"
+        shutil.rmtree(out, ignore_errors=True)
+        out.mkdir(parents=True)
+        (out / "manifest.json").write_text(json.dumps(manifest, indent=2))
+        for f in files():
+            rel = f.relative_to(EXT).as_posix()
+            if rel not in SHARED:
+                (out / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(f, out / rel)
+        for rel, src in SHARED.items():
+            (out / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, out / rel)
+        return out
     out = DIST / f"jace-passwords-{version}-{target}.{'xpi' if target == 'firefox' else 'zip'}"
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("manifest.json", json.dumps(manifest, indent=2))

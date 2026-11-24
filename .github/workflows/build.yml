@@ -277,9 +277,46 @@ jobs:
           path: dist/*.apk
           if-no-files-found: ignore
 
+  ios:
+    # The iPhone app (ios/) with the Safari extension inside, unsigned: AltStore / SideStore sign it with your
+    # own Apple ID when they install it. Their source (jace-passwords.vercel.app/api/jace/altstore) lists every
+    # release's .ipa, so they update it from there.
+    needs: [version, tests]
+    runs-on: macos-15
+    continue-on-error: true # while the app is new, an iPhone problem doesn't hold up the other releases
+    steps:
+      - uses: actions/checkout@v7
+      - name: Safari extension files
+        run: |
+          python3 packaging/build_extension.py safari
+          rm -rf ios/SafariResources && cp -R dist/safari-extension ios/SafariResources
+      - name: Generate the Xcode project
+        run: |
+          brew install xcodegen
+          cd ios && xcodegen generate
+      - name: Build the app (unsigned) and package the .ipa
+        run: |
+          V=$(python3 -c "import re;print(re.search(r'APP_VERSION = \"([^\"]+)\"', open('jace_passwords/__init__.py').read()).group(1))")
+          B=$(python3 -c "v='$V'.split('.')+['0','0'];print(int(v[0])*10000+int(v[1])*100+int(v[2]))")
+          cd ios
+          xcodebuild -project JacePasswords.xcodeproj -scheme JacePasswords -configuration Release -sdk iphoneos \
+            -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            MARKETING_VERSION="$V" CURRENT_PROJECT_VERSION="$B" build | tail -n 40
+          test -d build/Build/Products/Release-iphoneos/JacePasswords.app
+          rm -rf Payload && mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/JacePasswords.app Payload/
+          mkdir -p ../dist && zip -qry "../dist/JacePasswords-$V-ios.ipa" Payload
+          ls -la ../dist/*.ipa
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ios
+          path: dist/*.ipa
+          if-no-files-found: ignore
+
   release:
     if: needs.version.outputs.publish == 'true'
-    needs: [version, windows, macos, linux, extension, android]
+    needs: [version, windows, macos, linux, extension, android, ios]
     runs-on: ubuntu-latest
     permissions:
       contents: write

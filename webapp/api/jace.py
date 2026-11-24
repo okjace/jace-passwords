@@ -46,7 +46,7 @@ EXT_GECKO_ID = "jace-passwords@okjace"
 # the app signed with the release key opens it: see /.well-known/assetlinks.json), iPhone through Apple's
 # sign-in sheet (jacepasswords://auth goes back only to the app that opened the sheet).
 EXT_REDIRECT = re.compile(r"^(https://[a-z0-9-]+\.(chromiumapp\.org|extensions\.allizom\.org)/[A-Za-z0-9/_-]*"
-                          r"|https://jace-passwords\.vercel\.app/android-auth|jacepasswords://auth)$")
+                          r"|https://jace-passwords\.vercel\.app/(android-auth|ext-auth)|jacepasswords://auth)$")
 APP_STATE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")  # the app's own check value, echoed back with the token
 
 
@@ -218,6 +218,8 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
                                              "name": u.get("name") or "", "picture": u.get("picture") or ""}})
         if route in ("ext-updates", "ext-latest"):  # the browser extension's updates, from GitHub releases
             return self._ext_updates(route)
+        if route == "altstore":  # the iPhone app's AltStore / SideStore source, from GitHub releases
+            return self._altstore()
         if route == "breaches":  # Have I Been Pwned's breached websites, for Watchtower (its API has no CORS)
             return self._breaches()
         if route == "vault-key":
@@ -234,9 +236,9 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
 
     _release_cache = {"at": 0, "data": None}
 
-    def _ext_updates(self, route):
-        """ext-updates: Firefox's update manifest (gecko update_url), so Jace Browser and Firefox update the
-        signed extension by themselves. ext-latest: the newest version, for copies that can't update."""
+    @staticmethod
+    def _load_releases() -> bool:
+        """GitHub releases (cached 15 minutes): the signed extensions and the iPhone apps. False if unreachable."""
         c = handler._release_cache
         if not c["data"] or c["at"] < time.time() - 900:
             req = urllib.request.Request(f"https://api.github.com/repos/{GITHUB_REPO}/releases?per_page=30",
@@ -246,13 +248,20 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
                     releases = json.loads(r.read())
             except (urllib.error.URLError, TimeoutError, ValueError):
                 if not c["data"]:
-                    return self._send(502, {"error": "unreachable"})
+                    return False
                 releases = None
             if releases is not None:
                 found = []
+                ipas = []
                 for rel in releases:
                     if rel.get("draft") or rel.get("prerelease"):
                         continue
+                    for a in rel.get("assets", []):
+                        m = re.fullmatch(r"JacePasswords-(\d+\.\d+\.\d+)-ios\.ipa", a.get("name", ""))
+                        if m:
+                            ipas.append({"version": m.group(1), "date": rel.get("published_at") or "", "downloadURL": a["browser_download_url"],
+                                         "size": a.get("size") or 0, "localizedDescription": (rel.get("body") or "").split("\n---")[0][:4000],
+                                         "minOSVersion": "16.0"})
                     assets = {a["name"]: a["browser_download_url"] for a in rel.get("assets", [])}
                     for name, url in assets.items():
                         m = re.fullmatch(r"jace-passwords-(\d+\.\d+\.\d+)-signed\.xpi", name)
@@ -260,13 +269,43 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
                             chrome = assets.get(f"jace-passwords-{m.group(1)}-chrome.zip")
                             found.append({"version": m.group(1), "xpi": url, "chrome": chrome, "page": rel.get("html_url")})
                 uniq = {f["version"]: f for f in found}
-                c.update(at=time.time(), data=sorted(uniq.values(), key=lambda f: tuple(int(x) for x in f["version"].split("."))))
-        versions = c["data"] or []
+                c.update(at=time.time(), data=sorted(uniq.values(), key=lambda f: tuple(int(x) for x in f["version"].split("."))), ipas=ipas)
+        return True
+
+    def _ext_updates(self, route):
+        """ext-updates: Firefox's update manifest (gecko update_url), so Jace Browser and Firefox update the
+        signed extension by themselves. ext-latest: the newest version, for copies that can't update."""
+        if not handler._load_releases():
+            return self._send(502, {"error": "unreachable"})
+        versions = handler._release_cache["data"] or []
         if route == "ext-latest":
             return self._send(200, versions[-1] if versions else {}, headers={"Cache-Control": "public, max-age=900"})
         return self._send(200, {"addons": {EXT_GECKO_ID: {"updates": [
             {"version": v["version"], "update_link": v["xpi"]} for v in versions]}}},
             headers={"Cache-Control": "public, max-age=900"})
+
+    def _altstore(self):
+        """AltStore / SideStore source (their "apps.json" format): add it once and they keep the app updated."""
+        if not handler._load_releases():
+            return self._send(502, {"error": "unreachable"})
+        versions = handler._release_cache.get("ipas") or []
+        site = SITE_URL or "https://jace-passwords.vercel.app"
+        return self._send(200, {
+            "name": "Jace Passwords", "identifier": "com.okjace.jacepasswords.source", "website": site,
+            "subtitle": "Passwords, passkeys, 2FA codes and cards", "iconURL": f"{site}/img/app-icon.png", "tintColor": "3ddc84",
+            "apps": [{
+                "name": "Jace Passwords", "bundleIdentifier": "com.okjace.jacepasswords", "developerName": "okjace",
+                "subtitle": "Your passwords, passkeys and 2FA codes, end-to-end encrypted.",
+                "localizedDescription": "Jace Passwords keeps your logins, passkeys, 2FA codes (including Steam Guard), cards and addresses "
+                                        "end-to-end encrypted and synced with your Jace account. Autofill works in Safari through the "
+                                        "Jace Passwords Safari extension.",
+                "iconURL": f"{site}/img/app-icon.png", "tintColor": "3ddc84", "category": "utilities",
+                "screenshots": [f"{site}/img/vault.png"],
+                "versions": versions,
+                "appPermissions": {"entitlements": [], "privacy": {}},
+            }],
+            "news": [],
+        }, headers={"Cache-Control": "public, max-age=900"})
 
     _breach_cache = {"at": 0, "data": None}
 

@@ -46,10 +46,24 @@ async function rememberSession(engine) {
   if (sessionArea) await sessionArea.set({ jpSession: engine.exportSession() });
 }
 
+// Browsers with a sign-in window for extensions (Chrome, Firefox): launchWebAuthFlow. Safari has none, so there
+// the sign-in opens in a tab and comes back to jace-passwords.vercel.app/ext-auth, where content.js hands the token
+// to this script; it's accepted only with the random app_state made here for this sign-in.
+const tabSignIns = new Map(); // app_state -> { resolve, reject, tabId }
 async function signInWithJace() {
-  const redirect = B.identity.getRedirectURL();
-  const final = await B.identity.launchWebAuthFlow({ url: `${WEB}/api/jace/signin?ext_redirect=${encodeURIComponent(redirect)}`, interactive: true });
-  const frag = new URLSearchParams(new URL(final).hash.slice(1));
+  let frag;
+  if (B.identity?.launchWebAuthFlow) {
+    const redirect = B.identity.getRedirectURL();
+    const final = await B.identity.launchWebAuthFlow({ url: `${WEB}/api/jace/signin?ext_redirect=${encodeURIComponent(redirect)}`, interactive: true });
+    frag = new URLSearchParams(new URL(final).hash.slice(1));
+  } else {
+    const state = [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, "0")).join("");
+    const url = `${WEB}/api/jace/signin?ext_redirect=${encodeURIComponent(WEB + "/ext-auth")}&app_state=${state}`;
+    frag = await new Promise((resolve, reject) => {
+      B.tabs.create({ url }).then((tab) => tabSignIns.set(state, { resolve, reject, tabId: tab.id }), reject);
+      setTimeout(() => { if (tabSignIns.delete(state)) reject(new Error("The sign-in took too long. Try again.")); }, 10 * 60 * 1000);
+    });
+  }
   const token = frag.get("token");
   if (!token) throw new Error(frag.get("error") || "Jace didn't sign you in.");
   await B.storage.local.set({ jaceToken: { token, expires: Date.now() + (+frag.get("expires_in") || 86400) * 1000 } });
@@ -293,6 +307,16 @@ async function handle(msg, sender) {
     }
     case "unpair": await B.storage.local.remove("token"); return { ok: true };
     case "mode": return { mode: (await token()) ? "desktop" : "standalone", signedIn: !!(await jaceToken()) };
+    case "ext-auth": { // content.js on jace-passwords.vercel.app/ext-auth: the tab sign-in came back
+      const origin = (() => { try { return new URL(sender.url || "").origin; } catch { return ""; } })();
+      const p = new URLSearchParams(msg.fragment || "");
+      const pending = tabSignIns.get(p.get("app_state") || "");
+      if (origin !== WEB || !pending) return { ok: false };
+      tabSignIns.delete(p.get("app_state"));
+      pending.resolve(p);
+      if (sender.tab?.id !== undefined) B.tabs.remove(sender.tab.id).catch(() => {});
+      return { ok: true };
+    }
     case "jace-signin":
       if (sender.tab) return { error: "forbidden" };
       try { return await signInWithJace(); } catch (e) { return { error: "failed", message: e.message || String(e) }; }
