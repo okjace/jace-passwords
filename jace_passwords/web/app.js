@@ -575,7 +575,7 @@ function editItem(item, type) {
       <label class="lbl">Websites</label><div id="urls">${(f.urls?.length ? f.urls : [""]).map((u) => `<input class="input url-in" style="margin-bottom:6px" value="${h(u)}" placeholder="https://example.com">`).join("")}</div>
       <button type="button" class="btn ghost small" data-a="add-url">＋ Add website</button>
       <label class="lbl" for="f-totp">Two-factor code (2FA)</label>
-      <div class="row"><input class="input mono grow" id="f-totp" value="${h(f.totp || "")}" placeholder="Setup key or otpauth:// link" autocomplete="off" spellcheck="false">
+      <div class="row"><input class="input mono grow" id="f-totp" value="${h(f.totp || "")}" placeholder="Setup key, otpauth:// link, or steam:// for Steam Guard" autocomplete="off" spellcheck="false">
         <label class="btn" title="Read a QR code screenshot">📷 QR<input type="file" accept="image/*" id="qr-file" hidden></label></div>
       <div class="small muted" id="totp-preview"></div>
       ${f.passkeys?.length ? `<label class="lbl">Passkeys</label>${f.passkeys.map((p) => `<div class="small" style="margin-bottom:4px">🗝️ ${h(p.userName || p.userDisplayName || f.username || "Passkey")} <span class="muted">· ${h(p.rpId)} · stays with this login</span></div>`).join("")}` : `<div class="small muted" style="margin-top:10px">🗝️ Passkeys you create on this login's website are saved here.</div>`}`;
@@ -632,7 +632,7 @@ function mountEditor(root, item, type) {
     const tp = async () => {
       const v = val("f-totp");
       if (!v) return ($("#totp-preview", root).textContent = "");
-      try { const c = await POST("totp/parse", { value: v }); $("#totp-preview", root).textContent = `✓ ${c.digits}-digit codes every ${c.period}s${c.issuer ? " · " + c.issuer : ""}`; }
+      try { const c = await POST("totp/parse", { value: v }); $("#totp-preview", root).textContent = c.steam ? `✓ Steam Guard codes (5 characters) every ${c.period}s` : `✓ ${c.digits}-digit codes every ${c.period}s${c.issuer ? " · " + c.issuer : ""}`; }
       catch (e) { $("#totp-preview", root).textContent = "⚠ " + e.message; }
     };
     $("#f-totp", root).addEventListener("change", tp); tp();

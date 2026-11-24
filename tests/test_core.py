@@ -105,6 +105,20 @@ class Core(unittest.TestCase):
         with self.assertRaises(ValueError):
             generator.generate({"exclude": string.ascii_letters + string.digits + generator.SYMBOLS})
 
+    def test_steam_guard_codes(self):
+        import base64 as b64
+        secret = "JBSWY3DPEHPK3PXP"
+        c = totp.code("steam://" + secret, at=1_700_000_000)
+        self.assertEqual(len(c["code"]), 5)
+        self.assertTrue(set(c["code"]) <= set(totp.STEAM_CHARS))
+        self.assertTrue(c["steam"])
+        # the same secret through every format gives the same code
+        shared = b64.b64encode(b64.b32decode(secret)).decode()
+        for v in ("otpauth://steam/Steam:me?secret=" + secret, "otpauth://totp/Steam:me?secret=" + secret + "&encoder=steam",
+                  json.dumps({"shared_secret": shared, "account_name": "me"})):
+            self.assertEqual(totp.code(v, at=1_700_000_000)["code"], c["code"])
+        self.assertEqual(len(totp.code(secret, at=1_700_000_000)["code"]), 6)  # plain secrets are still normal codes
+
     def test_generator(self):
         p = generator.random_password(24)
         self.assertEqual(len(p), 24)

@@ -439,13 +439,32 @@
     const score = bits < 28 ? 0 : bits < 40 ? 1 : bits < 60 ? 2 : bits < 80 ? 3 : 4;
     return { score, bits: Math.round(bits), label: ["Very weak", "Weak", "Fair", "Strong", "Very strong"][score] };
   }
+  // Steam Guard codes: 5 characters from these, made from the same HMAC as TOTP (totp.py).
+  const STEAM_CHARS = "23456789BCDFGHJKMNPQRTVWXY";
+  const steamCfg = (secret, account = "") => ({ secret: secret.replace(/[\s-]/g, "").toUpperCase(), digits: 5, period: 30, algorithm: "SHA1", issuer: "Steam", account, steam: true });
   function totpParse(value) {
     value = String(value || "").trim();
     let cfg;
+    if (value.startsWith("{")) { // a Steam Desktop Authenticator .maFile: its base64 "shared_secret"
+      let shared;
+      try { shared = JSON.parse(value).shared_secret; } catch { /* below */ }
+      if (!shared) throw new ApiError("That isn't a Steam Guard file (it needs a shared_secret).");
+      const bytes = b64d(shared), A = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+      let bits = 0, val = 0, s = "";
+      for (const b of bytes) { val = (val << 8) | b; bits += 8; while (bits >= 5) { s += A[(val >>> (bits - 5)) & 31]; bits -= 5; } }
+      if (bits > 0) s += A[(val << (5 - bits)) & 31];
+      value = "steam://" + s;
+    }
+    if (/^steam:\/\//i.test(value)) { cfg = steamCfg(value.slice(8)); base32(cfg.secret); return cfg; } // Bitwarden / KeePassXC style
     if (/^otpauth:\/\//i.test(value)) {
       const u = new URL(value);
-      if (u.host.toLowerCase() !== "totp") throw new ApiError("Only time-based (TOTP) codes are supported.");
       const q = Object.fromEntries([...u.searchParams].map(([k, v]) => [k.toLowerCase(), v]));
+      if (u.host.toLowerCase() === "steam" || (q.encoder || "").toLowerCase() === "steam") { // Aegis, KeePass
+        cfg = steamCfg(q.secret || "", decodeURIComponent(u.pathname.replace(/^\/+/, "")).split(":").pop());
+        base32(cfg.secret);
+        return cfg;
+      }
+      if (u.host.toLowerCase() !== "totp") throw new ApiError("Only time-based (TOTP) and Steam Guard codes are supported.");
       const label = decodeURIComponent(u.pathname.replace(/^\/+/, ""));
       cfg = { secret: (q.secret || "").replace(/[\s-]/g, "").toUpperCase(), digits: +(q.digits || 6), period: +(q.period || 30),
         algorithm: (q.algorithm || "SHA1").toUpperCase(), issuer: q.issuer || (label.includes(":") ? label.split(":")[0] : ""),
@@ -479,8 +498,11 @@
     const k = await subtle.importKey("raw", base32(c.secret), { name: "HMAC", hash: c.algorithm.replace("SHA", "SHA-") }, false, ["sign"]);
     const mac = new Uint8Array(await subtle.sign("HMAC", k, msg));
     const off = mac[mac.length - 1] & 15;
-    const num = (new DataView(mac.buffer).getUint32(off) & 0x7fffffff) % 10 ** c.digits;
-    return { code: String(num).padStart(c.digits, "0"), period: c.period, remaining: c.period - Math.floor(at % c.period), issuer: c.issuer };
+    let full = new DataView(mac.buffer).getUint32(off) & 0x7fffffff;
+    let code;
+    if (c.steam) { code = ""; for (let i = 0; i < 5; i++) { code += STEAM_CHARS[full % STEAM_CHARS.length]; full = Math.floor(full / STEAM_CHARS.length); } }
+    else code = String(full % 10 ** c.digits).padStart(c.digits, "0");
+    return { code, steam: !!c.steam, period: c.period, remaining: c.period - Math.floor(at % c.period), issuer: c.issuer };
   }
   function cardBrand(n) {
     const p4 = +n.slice(0, 4) || 0;

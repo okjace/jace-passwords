@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.3
+
+- **Steam Guard codes:** add Steam's 2FA to a login and Jace Passwords shows and fills its 5-character codes. Paste any of: `steam://SECRET` (Bitwarden, KeePassXC), an `otpauth://steam/...` link (Aegis), an `otpauth://totp/...&encoder=steam` link (KeePass), or the contents of a Steam Desktop Authenticator `.maFile`.
+
 ## 1.7.2
 
 - **Starting on the password box fills the email too:** on pages where the email box is in another form or part of the page, picking a login from the password box now also fills the nearest email/username box before it. The practice page has an "Email apart" test for it.
