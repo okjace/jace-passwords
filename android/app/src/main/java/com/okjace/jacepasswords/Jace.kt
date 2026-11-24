@@ -6,7 +6,7 @@ import java.net.URL
 import java.util.Base64
 
 /**
- * The Jace Passwords site (jace-passwords.vercel.app/api/jace/*), with this phone's Jace sign-in token, exactly like
+ * The Jace Passwords site (jace-passwords.vercel.app/api/jace/...), with this phone's Jace sign-in token, exactly like
  * the browser extension: your account, sync of the (encrypted) vault, and the key for vaults that unlock with Jace.
  */
 class Jace(private val token: () -> String?) {
