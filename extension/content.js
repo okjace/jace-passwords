@@ -307,6 +307,15 @@
     let fields = fieldsIn(scope);
     if (group && scope !== document && !fields.some((f) => KIND_GROUP(f.kind) === group)) fields = fieldsIn((scope = document));
     if (!fields.length && scope !== document) fields = fieldsIn(document);
+    // A login picked from the password box: if its form has no email/username box (many sites put it in another
+    // form or section), use the nearest one before the password box anywhere on the page.
+    if (data.type === "login" && data.username && !fields.some((f) => f.kind === "username")) {
+      const pw = fields.find((f) => f.kind === "password")?.el || (anchor?.type === "password" ? anchor : null);
+      const before = (el) => !pw || (el.compareDocumentPosition(pw) & Node.DOCUMENT_POSITION_FOLLOWING);
+      const user = [...document.querySelectorAll("input")].filter((el) => visible(el) && !el.disabled && !el.readOnly && before(el)
+        && (["username", "id-email"].includes(classify(el)) || el.type === "email" || /(^| )(user|username|login|email|e mail|account|identifier)( |$)/.test(words(el)))).pop();
+      if (user) fields = [{ el: user, kind: "username" }, ...fields.filter((f) => f.el !== user)];
+    }
     let did = false, otpDone = false;
     const radioGroups = new Set();
     for (const { el, kind } of fields) {

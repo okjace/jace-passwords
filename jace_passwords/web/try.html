@@ -45,7 +45,7 @@
   <header><a class="brand" href="/"><img src="/icon.svg" alt="">Jace Passwords</a><a href="/app">Open the web app</a></header>
   <h1>Try autofill</h1>
   <p class="lead">Practice forms for everything the Jace Passwords extension fills. Nothing you enter here is sent anywhere: the forms only pretend to submit. Fields turn green when they're filled. Save a login with the website <b>https://jace-passwords.vercel.app</b> to see it offered here.</p>
-  <nav class="toc"><a href="#login">Sign in</a><a href="#signup">Sign up</a><a href="#otp">2FA code</a><a href="#boxes">Code boxes</a><a href="#email-code">Emailed code</a><a href="#passkey">Passkeys</a><a href="#card">Card</a><a href="#card-guess">Card (no hints)</a><a href="#card-frame">Card in a frame</a><a href="#address">Address</a><a href="#contact">Contact</a><a href="#report">Report a field</a></nav>
+  <nav class="toc"><a href="#login">Sign in</a><a href="#split">Email apart</a><a href="#signup">Sign up</a><a href="#otp">2FA code</a><a href="#boxes">Code boxes</a><a href="#email-code">Emailed code</a><a href="#passkey">Passkeys</a><a href="#card">Card</a><a href="#card-guess">Card (no hints)</a><a href="#card-frame">Card in a frame</a><a href="#address">Address</a><a href="#contact">Contact</a><a href="#report">Report a field</a></nav>
 
   <div class="grid">
     <section id="login"><h2>Sign in <span class="badge" data-badge>not filled</span></h2>
@@ -53,6 +53,14 @@
       <form data-try="login" method="post" action="#">
         <label for="l-email">Email</label><input id="l-email" name="email" type="email" autocomplete="username" placeholder="you@example.com">
         <label for="l-pw">Password</label><input id="l-pw" name="password" type="password" autocomplete="current-password" placeholder="Password">
+        <button>Sign in</button><div class="result"></div>
+      </form></section>
+
+    <section id="split"><h2>Sign in, email apart <span class="badge" data-badge>not filled</span></h2>
+      <p class="how">Some sites put the email box in a different part of the page from the password. Click <b>Password</b> first and pick a login: the email fills too.</p>
+      <div><label for="x-email">Email</label><input id="x-email" name="account_email" placeholder="you@example.com"></div>
+      <form data-try="split" method="post" action="#">
+        <label for="x-pw">Password</label><input id="x-pw" name="account_password" type="password" autocomplete="current-password">
         <button>Sign in</button><div class="result"></div>
       </form></section>
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.2
+
+- **Starting on the password box fills the email too:** on pages where the email box is in another form or part of the page, picking a login from the password box now also fills the nearest email/username box before it. The practice page has an "Email apart" test for it.
+
 ## 1.7.1
 
 - **In the Firefox add-ons store:** Jace Passwords is at addons.mozilla.org/firefox/addon/jace-passwords. Every release now also goes there (as version X.1), so store installs get updates automatically. The website and app link to the store.
