@@ -305,6 +305,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             MARKETING_VERSION="$V" CURRENT_PROJECT_VERSION="$B" build | tail -n 40
           test -d build/Build/Products/Release-iphoneos/JacePasswords.app
+          test -f build/Build/Products/Release-iphoneos/JacePasswords.app/PlugIns/JacePasswordsSafari.appex/manifest.json
           rm -rf Payload && mkdir Payload
           cp -R build/Build/Products/Release-iphoneos/JacePasswords.app Payload/
           mkdir -p ../dist && zip -qry "../dist/JacePasswords-$V-ios.ipa" Payload

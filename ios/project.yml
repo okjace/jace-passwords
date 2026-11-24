@@ -16,6 +16,7 @@ settings:
     CODE_SIGN_IDENTITY: ""
     TARGETED_DEVICE_FAMILY: "1,2"
     ENABLE_PREVIEWS: "NO"
+    ENABLE_USER_SCRIPT_SANDBOXING: "NO"
 targets:
   JacePasswords:
     type: application
@@ -36,11 +37,16 @@ targets:
     platform: iOS
     sources:
       - path: Safari
-      # the browser extension (packaging/build_extension.py safari), copied into the extension as it is
-      - path: SafariResources
-        type: folder
-        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.okjace.jacepasswords.safari
         INFOPLIST_FILE: Safari/Info.plist
+    # The browser extension (packaging/build_extension.py safari), copied to the top of the extension bundle,
+    # where Safari looks for manifest.json (with its folders, vault/ and icons/, kept as they are).
+    postCompileScripts:
+      - name: Copy the web extension
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          test -f "${SRCROOT}/SafariResources/manifest.json"
+          rsync -a --exclude ".*" "${SRCROOT}/SafariResources/" "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/"
