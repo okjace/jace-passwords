@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.0
+
+- **iPhone app:** `JacePasswords-1.8.0-ios.ipa`. Install it with AltStore or SideStore, or add the source `https://jace-passwords.vercel.app/api/jace/altstore` once and they keep it updated. Sign in with Jace, open your vault, copy logins and 2FA codes (Steam Guard too), and add and edit logins. Autofill works in Safari through the Jace Passwords Safari extension built into the app: turn it on in Settings → Apps → Safari → Extensions.
+- **The extension signs in through a tab where browsers have no sign-in window** (Safari).
+- **Android app:** built and tested, coming in a later release once it has its signing key.
+
 ## 1.7.3
 
 - **Steam Guard codes:** add Steam's 2FA to a login and Jace Passwords shows and fills its 5-character codes. Paste any of: `steam://SECRET` (Bitwarden, KeePassXC), an `otpauth://steam/...` link (Aegis), an `otpauth://totp/...&encoder=steam` link (KeePass), or the contents of a Steam Desktop Authenticator `.maFile`.
