@@ -42,7 +42,12 @@ GITHUB_REPO = "okjace/jace-passwords"
 EXT_GECKO_ID = "jace-passwords@okjace"
 # The browser extension signs in with the browser's own sign-in window (identity.launchWebAuthFlow),
 # whose final address is one of these; it gets its token in the URL fragment (never sent anywhere).
-EXT_REDIRECT = re.compile(r"^https://[a-z0-9-]+\.(chromiumapp\.org|extensions\.allizom\.org)/[A-Za-z0-9/_-]*$")
+# ...and the Jace Passwords phone apps, which get it the same way: Android through a verified App Link (only
+# the app signed with the release key opens it: see /.well-known/assetlinks.json), iPhone through Apple's
+# sign-in sheet (jacepasswords://auth goes back only to the app that opened the sheet).
+EXT_REDIRECT = re.compile(r"^(https://[a-z0-9-]+\.(chromiumapp\.org|extensions\.allizom\.org)/[A-Za-z0-9/_-]*"
+                          r"|https://jace-passwords\.vercel\.app/android-auth|jacepasswords://auth)$")
+APP_STATE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")  # the app's own check value, echoed back with the token
 
 
 def _jace(method, path, token=None, form=None, body=None, headers=None):
@@ -163,6 +168,9 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
             ext = q.get("ext_redirect", "")
             if ext and not EXT_REDIRECT.match(ext):
                 return self._send(400, {"error": "invalid_request", "error_description": "Unknown extension address."})
+            app_state = q.get("app_state", "")
+            if app_state and not APP_STATE.match(app_state):
+                return self._send(400, {"error": "invalid_request", "error_description": "Bad app_state."})
             params = {"response_type": "code", "client_id": CLIENT_ID, "redirect_uri": REDIRECT, "scope": "profile sync",
                       "state": state, "code_challenge": challenge, "code_challenge_method": "S256"}
             # Always show Jace's "allow Jace Passwords to use your account?" page when you press Sign in: Jace
@@ -170,12 +178,12 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
             params["prompt"] = "none" if silent else "consent"
             url = f"{JACE_URL}/oauth/authorize?" + urllib.parse.urlencode(params)
             ext_b64 = base64.urlsafe_b64encode(ext.encode()).decode().rstrip("=")
-            return self._redirect(url, [self._cookie(STATE_COOKIE, _sign(f"{state}:{verifier}:{int(silent)}:{ext_b64}"), 600)])
+            return self._redirect(url, [self._cookie(STATE_COOKIE, _sign(f"{state}:{verifier}:{int(silent)}:{ext_b64}:{app_state}"), 600)])
         if route == "callback":
             if not self._configured():
                 return
             saved = _unsign(self._cookies().get(STATE_COOKIE, "")) or ""
-            state, verifier, silent, ext_b64 = (saved.split(":") + ["", "", "0", ""])[:4]
+            state, verifier, silent, ext_b64, app_state = (saved.split(":") + ["", "", "0", "", ""])[:5]
             ext = base64.urlsafe_b64decode(ext_b64 + "=" * (-len(ext_b64) % 4)).decode() if ext_b64 else ""
             if ext and not EXT_REDIRECT.match(ext):
                 ext = ""
@@ -194,7 +202,8 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 - Vercel's required name
                 return self._redirect("/app?signin_error=" + urllib.parse.quote(msg), [clear_state])
             max_age = min(int(tok.get("expires_in") or 30 * 86400), 365 * 86400)
             if ext:  # back to the extension's sign-in window: the token travels in the fragment only
-                frag = urllib.parse.urlencode({"token": tok["access_token"], "expires_in": max_age})
+                frag = urllib.parse.urlencode({"token": tok["access_token"], "expires_in": max_age,
+                                               **({"app_state": app_state} if app_state else {})})
                 return self._redirect(f"{ext}#{frag}", [clear_state])
             return self._redirect("/app", [clear_state, self._cookie(TOKEN_COOKIE, _sign(tok["access_token"]), max_age)])
         if route == "me":

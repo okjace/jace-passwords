@@ -242,9 +242,44 @@ jobs:
           if [ -z "$VERCEL_TOKEN" ]; then echo "::warning::VERCEL_TOKEN secret not set - web app not deployed"; exit 0; fi
           python3 packaging/deploy_vercel.py
 
+  android:
+    # The Android app (android/): tests (it must open desktop-made vaults), then a signed release APK.
+    # Signing needs the ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASSWORD secrets (packaging/android_keystore.py).
+    needs: [version, tests]
+    runs-on: ubuntu-latest
+    continue-on-error: true # while the app is new, an Android problem doesn't hold up the other releases
+    env:
+      ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+      - name: Test and build the Android app
+        run: gradle -p android --no-daemon testDebugUnitTest assembleRelease
+      - name: Name the APK
+        run: |
+          V=$(python3 -c "import re;print(re.search(r'APP_VERSION = \"([^\"]+)\"', open('jace_passwords/__init__.py').read()).group(1))")
+          if [ -z "$ANDROID_KEYSTORE_B64" ]; then
+            echo "::warning::ANDROID_KEYSTORE_* secrets not set - the APK isn't released (run python3 packaging/android_keystore.py once)"
+            exit 0
+          fi
+          mkdir -p dist
+          cp android/app/build/outputs/apk/release/app-release.apk "dist/JacePasswords-$V-android.apk"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android
+          path: dist/*.apk
+          if-no-files-found: ignore
+
   release:
     if: needs.version.outputs.publish == 'true'
-    needs: [version, windows, macos, linux, extension]
+    needs: [version, windows, macos, linux, extension, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
