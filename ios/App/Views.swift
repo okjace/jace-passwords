@@ -345,6 +345,7 @@ struct EditLoginView: View {
             TextField("Website (example.com)", text: $website).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
             Section(footer: Text(totpError ?? "A 2FA setup key, an otpauth:// link, or steam:// for Steam Guard.")) {
                 TextField("2FA setup key", text: $totp).textInputAutocapitalization(.never).autocorrectionDisabled()
+                Link("Steam Guard? How to add Steam's codes", destination: URL(string: "https://jace-passwords.vercel.app/steam")!)
             }
             Section("Notes") { TextEditor(text: $notes).frame(minHeight: 90) }
         }

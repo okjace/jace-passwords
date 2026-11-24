@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Steam Guard in Jace Passwords</title>
+<meta name="description" content="Step by step: get your Steam Guard secret and add Steam's 5-character codes to Jace Passwords.">
+<link rel="icon" href="/icon.svg">
+<style>
+  :root { --bg: #f4f5f7; --panel: #fff; --panel2: #eceef1; --line: #dfe2e7; --text: #16181d; --muted: #5d6470; --accent: #1f9d5a; --warn: #9a6400; --warnbg: #fff4dc; color-scheme: light; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111317; --panel: #1c1f26; --panel2: #23272f; --line: #2a2f38; --text: #e6e8eb; --muted: #8b919c; --accent: #3ddc84; --warn: #f0b429; --warnbg: #2d2714; color-scheme: dark; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  a { color: var(--accent); }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 24px 16px 64px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; color: var(--text); text-decoration: none; }
+  .brand img { width: 28px; height: 28px; }
+  h1 { font-size: clamp(28px, 5vw, 38px); letter-spacing: -.6px; margin: 22px 0 6px; }
+  .lead { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px 22px; margin: 16px 0; }
+  .card h2 { margin: 0 0 4px; font-size: 20px; } .card .sub { color: var(--muted); margin: 0 0 12px; font-size: 15px; }
+  ol { padding-left: 22px; margin: 10px 0 0; } ol li { margin: 8px 0; }
+  code { font: 14px ui-monospace, Menlo, Consolas, monospace; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; overflow-wrap: anywhere; }
+  .warn { background: var(--warnbg); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); color: var(--text); border-radius: 12px; padding: 12px 14px; margin: 12px 0; }
+  .warn b { color: var(--warn); }
+  .pill { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); vertical-align: middle; margin-left: 6px; }
+  nav.toc { display: flex; flex-wrap: wrap; gap: 8px; } nav.toc a { font-size: 14px; padding: 5px 11px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); text-decoration: none; color: var(--text); }
+  footer { margin-top: 28px; color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><a class="brand" href="/"><img src="/icon.svg" alt="">Jace Passwords</a><a href="/app">Open the web app</a></header>
+
+  <h1>Steam Guard codes in Jace Passwords</h1>
+  <p class="lead">Jace Passwords can show and fill Steam's 5-character sign-in codes (like <code>7KQ2F</code>), right next to your Steam password. To do that it needs your Steam Guard <b>secret</b>, the key that makes the codes. Steam doesn't show it in its own app, so pick the way that fits you:</p>
+  <nav class="toc"><a href="#have-it">I already have it</a><a href="#windows">Windows</a><a href="#linux-mac">Linux / macOS</a><a href="#add">Add it to Jace Passwords</a><a href="#good-to-know">Good to know</a></nav>
+
+  <div class="warn"><b>Before you start:</b> setting up a new authenticator for Steam replaces the one in the Steam app on your phone (only one can be active). Steam may hold trades and Community Market listings for a few days after you change it. <b>Write down the revocation code</b> (it starts with <code>R</code>) that you're shown: it's the only way back in if you lose the secret.</div>
+
+  <div class="card" id="have-it">
+    <h2>1. You already have the secret <span class="pill">quickest</span></h2>
+    <p class="sub">If another app already makes your Steam codes, you can move them over without touching Steam:</p>
+    <ol>
+      <li><b>Bitwarden or KeePassXC:</b> copy the 2FA field. It looks like <code>steam://ABCD…</code>.</li>
+      <li><b>Aegis:</b> export (unencrypted) and copy the Steam entry's link: <code>otpauth://steam/…</code>.</li>
+      <li><b>KeePass with KeeTrayTOTP:</b> copy the link with <code>encoder=steam</code>.</li>
+      <li><b>Steam Desktop Authenticator or steamguard-cli:</b> open your <code>.maFile</code> and copy all of it (see below).</li>
+    </ol>
+    <p>Then jump to <a href="#add">add it to Jace Passwords</a>.</p>
+  </div>
+
+  <div class="card" id="windows">
+    <h2>2. On Windows: Steam Desktop Authenticator</h2>
+    <p class="sub">A free, open-source app that becomes your Steam authenticator and saves the secret in a file.</p>
+    <ol>
+      <li>Download it from <a href="https://github.com/Jessecar96/SteamDesktopAuthenticator/releases" rel="noopener">github.com/Jessecar96/SteamDesktopAuthenticator</a> and unzip it into a folder of its own.</li>
+      <li>If the Steam app on your phone is your authenticator now, remove it first: <b>Steam app → Steam Guard → Remove Authenticator</b>. (You'll get codes by email in the meantime.)</li>
+      <li>Open <b>Steam Desktop Authenticator</b> and choose <b>Setup New Account</b>. Sign in to Steam.</li>
+      <li>Follow its steps: confirm your phone number and the email Steam sends you.</li>
+      <li><b>Write down the revocation code</b> it shows (<code>R12345</code>). Keep it somewhere safe, not just on this computer.</li>
+      <li>When it asks for an encryption passkey, leave it empty for now (you can add one after), so the next step works.</li>
+      <li>Open the <code>maFiles</code> folder next to the app. Open the file named like <code>7656119….maFile</code> with Notepad, select all and copy.</li>
+    </ol>
+  </div>
+
+  <div class="card" id="linux-mac">
+    <h2>3. On Linux or macOS: steamguard-cli</h2>
+    <p class="sub">The same idea in a terminal: <a href="https://github.com/dyc3/steamguard-cli" rel="noopener">github.com/dyc3/steamguard-cli</a>.</p>
+    <ol>
+      <li>Install it: on Arch from the AUR (<code>steamguard-cli</code>); otherwise download a release or follow the install steps on its page.</li>
+      <li>If the Steam app on your phone is your authenticator now, remove it first: <b>Steam app → Steam Guard → Remove Authenticator</b>.</li>
+      <li>Run <code>steamguard setup</code> and sign in. Confirm your phone number and the email Steam sends you.</li>
+      <li><b>Write down the revocation code</b> it prints (<code>R12345</code>).</li>
+      <li>Don't set an encryption passkey yet (just press Enter), so the file stays readable.</li>
+      <li>Open <code>~/.config/steamguard-cli/maFiles/</code> and copy everything in your <code>.maFile</code>, for example: <code>cat ~/.config/steamguard-cli/maFiles/*.maFile</code></li>
+    </ol>
+  </div>
+
+  <div class="card" id="add">
+    <h2>4. Add it to Jace Passwords</h2>
+    <ol>
+      <li>Open Jace Passwords (desktop app, web app, Android or iPhone) and find your <b>Steam</b> login, or make one with your Steam username and password and the website <code>store.steampowered.com</code>.</li>
+      <li>Tap <b>Edit</b>.</li>
+      <li>Paste what you copied into the <b>Two-factor code (2FA)</b> box: the whole <code>.maFile</code>, a <code>steam://</code> secret, or an <code>otpauth://steam/</code> link.</li>
+      <li>Under the box it should say <b>Steam Guard codes (5 characters)</b>. Save.</li>
+      <li>Check the code Jace Passwords shows matches the one in Steam Desktop Authenticator or <code>steamguard</code>. It changes every 30 seconds.</li>
+      <li>From now on, Jace Passwords fills the Steam Guard code after your password when you sign in to Steam in your browser, and shows it in the apps to copy.</li>
+    </ol>
+  </div>
+
+  <div class="card" id="good-to-know">
+    <h2>Good to know</h2>
+    <ol>
+      <li><b>Trade and market confirmations</b> aren't in Jace Passwords: it makes sign-in codes only. Keep Steam Desktop Authenticator or steamguard-cli for confirming trades.</li>
+      <li><b>Keep the .maFile safe or delete it:</b> anyone with it can make your codes. Once your codes work in Jace Passwords (where your vault is encrypted), either set an encryption passkey in that app or delete the file if you don't need confirmations.</li>
+      <li><b>Lost everything?</b> Use your revocation code at <a href="https://store.steampowered.com/twofactor/manage" rel="noopener">store.steampowered.com/twofactor/manage</a> or Steam Support to remove the authenticator.</li>
+      <li><b>Want the Steam app back as your authenticator?</b> Setting it up again in the Steam app replaces this one, and the codes in Jace Passwords stop working.</li>
+    </ol>
+  </div>
+
+  <footer>Jace Passwords isn't made by or affiliated with Valve or Steam. <a href="/">Jace Passwords</a> · <a href="/privacy">Privacy</a></footer>
+</div>
+</body>
+</html>

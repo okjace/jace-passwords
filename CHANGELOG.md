@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.8.1
+
+- **Steam sign-in fills the code by itself:** after your password, when Steam asks you to approve in its phone app, the extension chooses **Enter a code instead** and fills your Steam Guard code (if that Steam login has one saved).
+- **Step-by-step Steam Guard guide** at jace-passwords.vercel.app/steam: how to get your Steam Guard secret (Steam Desktop Authenticator on Windows, steamguard-cli on Linux and macOS, or from Bitwarden, KeePassXC or Aegis) and add it. Linked from the 2FA box in every app.
+
 ## 1.8.0
 
 - **iPhone app:** `JacePasswords-1.8.0-ios.ipa`. Install it with AltStore or SideStore, or add the source `https://jace-passwords.vercel.app/api/jace/altstore` once and they keep it updated. Sign in with Jace, open your vault, copy logins and 2FA codes (Steam Guard too), and add and edit logins. Autofill works in Safari through the Jace Passwords Safari extension built into the app: turn it on in Settings → Apps → Safari → Extensions.

@@ -198,6 +198,10 @@ fun EditLoginScreen(id: String?, onDone: (String?) -> Unit) {
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
             OutlinedTextField(totp, { totp = it }, label = { Text("2FA setup key, otpauth:// or steam:// link") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                 isError = totpError != null, supportingText = { totpError?.let { Text(it) } })
+            val ctx = LocalContext.current
+            TextButton(onClick = { runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://jace-passwords.vercel.app/steam"))) } }) {
+                Text("Steam Guard? How to add Steam's codes")
+            }
             OutlinedTextField(notes, { notes = it }, label = { Text("Notes") }, modifier = Modifier.fillMaxWidth().height(120.dp))
         }
     }

@@ -924,6 +924,45 @@
     else if (kind === "get") onGet(id, req);
   });
 
+  /* ---------- Steam: "Enter a code instead" ---------- */
+  // After the password, Steam asks you to approve the sign-in in its phone app. If your Steam login in Jace Passwords
+  // has its Steam Guard code, choose "Enter a code instead" and fill the code (only for a login with a code: the
+  // one you just filled on this tab, or your only Steam login that has one).
+  if (/(^|\.)(steampowered\.com|steamcommunity\.com)$/.test(location.hostname) && window === window.top) {
+    let steamBusy = false, steamDone = false;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const codeLink = () => [...document.querySelectorAll("a, button, div, span")]
+      .find((el) => el.children.length === 0 && /^\s*enter a code instead\s*$/i.test(el.textContent || "") && el.getClientRects().length > 0);
+    const steamCode = async () => {
+      const r = await send({ type: "totp-for-tab" });
+      if (r.totp) return r.totp;
+      const m = await send({ type: "match", url: location.href });
+      const withCode = (m.logins || []).filter((l) => l.hasTotp);
+      if (withCode.length !== 1) return null;
+      return (await send({ type: "fill", id: withCode[0].id })).totp || null;
+    };
+    const codeBox = () => [...document.querySelectorAll("input")].find((el) => visible(el) && !el.disabled && classify(el) === "totp");
+    const tryCode = async () => {
+      if (steamBusy || steamDone) return;
+      const link = codeLink();
+      if (!link) return;
+      steamBusy = true;
+      try {
+        if (!(await steamCode())) return;          // no Steam Guard code saved: leave Steam's choice alone
+        steamDone = true;
+        link.click();
+        for (let i = 0; i < 24; i++) {             // up to 6 s for the code boxes
+          await sleep(250);
+          const box = codeBox();
+          if (box) { const code = await steamCode(); if (code) fillCode(box, code); return; } // a fresh code
+        }
+      } finally { steamBusy = false; }
+    };
+    let t = null;
+    new MutationObserver(() => { clearTimeout(t); t = setTimeout(tryCode, 300); }).observe(document.documentElement, { childList: true, subtree: true });
+    setTimeout(tryCode, 800);
+  }
+
   maybeOfferSave();
   // single-page apps change pages without a reload
   let lastUrl = location.href;

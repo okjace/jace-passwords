@@ -578,6 +578,7 @@ function editItem(item, type) {
       <div class="row"><input class="input mono grow" id="f-totp" value="${h(f.totp || "")}" placeholder="Setup key, otpauth:// link, or steam:// for Steam Guard" autocomplete="off" spellcheck="false">
         <label class="btn" title="Read a QR code screenshot">📷 QR<input type="file" accept="image/*" id="qr-file" hidden></label></div>
       <div class="small muted" id="totp-preview"></div>
+      <div class="small muted">Steam Guard? <a href="https://jace-passwords.vercel.app/steam" target="_blank" rel="noopener">How to add Steam's codes</a></div>
       ${f.passkeys?.length ? `<label class="lbl">Passkeys</label>${f.passkeys.map((p) => `<div class="small" style="margin-bottom:4px">🗝️ ${h(p.userName || p.userDisplayName || f.username || "Passkey")} <span class="muted">· ${h(p.rpId)} · stays with this login</span></div>`).join("")}` : `<div class="small muted" style="margin-top:10px">🗝️ Passkeys you create on this login's website are saved here.</div>`}`;
   } else if (type === "card") {
     fields = `${inp("f-cardholder", "Cardholder name", f.cardholder || "", 'autocomplete="off"')}
