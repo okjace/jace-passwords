@@ -344,3 +344,25 @@ jobs:
           name: Jace Passwords ${{ needs.version.outputs.tag }}
           body_path: notes.md
           files: artifacts/*
+
+  chrome-store:
+    # After a release: upload the extension to the Chrome Web Store and submit it for review, so store installs
+    # update. Needs the CWS_SERVICE_ACCOUNT / CWS_PUBLISHER_ID / CWS_EXTENSION_ID secrets (packaging/chrome_store_setup.py).
+    if: needs.version.outputs.publish == 'true'
+    needs: [version, release]
+    runs-on: ubuntu-latest
+    continue-on-error: true # a store hiccup never undoes a release
+    env:
+      CWS_SERVICE_ACCOUNT: ${{ secrets.CWS_SERVICE_ACCOUNT }}
+      CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+      CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Upload to the Chrome Web Store
+        run: |
+          if [ -z "$CWS_SERVICE_ACCOUNT" ]; then echo "::warning::Chrome Web Store secrets not set - not uploaded (python3 packaging/chrome_store_setup.py)"; exit 0; fi
+          pip install cryptography
+          python3 packaging/publish_chrome.py
