@@ -931,13 +931,20 @@
   if (/(^|\.)(steampowered\.com|steamcommunity\.com)$/.test(location.hostname) && window === window.top) {
     let steamBusy = false, steamDone = false;
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    const codeLink = () => [...document.querySelectorAll("a, button, div, span")]
-      .find((el) => el.children.length === 0 && /^\s*enter a code instead\s*$/i.test(el.textContent || "") && el.getClientRects().length > 0);
+    // The innermost visible element whose text is "Enter a code instead" (however Steam wraps it).
+    const isLink = (el) => /^enter a code instead$/i.test((el.textContent || "").replace(/\s+/g, " ").trim());
+    const codeLink = () => [...document.querySelectorAll("a, button, div, span, p")]
+      .find((el) => isLink(el) && ![...el.children].some(isLink) && el.getClientRects().length > 0);
     const steamCode = async () => {
       const r = await send({ type: "totp-for-tab" });
       if (r.totp) return r.totp;
-      const m = await send({ type: "match", url: location.href });
-      const withCode = (m.logins || []).filter((l) => l.hasTotp);
+      // Steam is two sites (steampowered.com, steamcommunity.com): a Steam login saved for either counts.
+      const seen = new Map();
+      for (const url of [location.href, "https://store.steampowered.com/login", "https://steamcommunity.com/login"]) {
+        const m = await send({ type: "match", url });
+        (m.logins || []).filter((l) => l.hasTotp).forEach((l) => seen.set(l.id, l));
+      }
+      const withCode = [...seen.values()];
       if (withCode.length !== 1) return null;
       return (await send({ type: "fill", id: withCode[0].id })).totp || null;
     };

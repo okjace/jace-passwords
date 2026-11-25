@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.8.2
+
+- **In the Chrome Web Store:** Jace Passwords is at chromewebstore.google.com/detail/jace-passwords/lnbpganekbjbcjbchggdbieaballolcl, and the website and app link there.
+- **Steam's "Enter a code instead" is found more reliably:** however Steam wraps the link, and with a Steam login saved for either steampowered.com or steamcommunity.com, even if the extension didn't fill the password on that tab.
+
 ## 1.8.1
 
 - **Steam sign-in fills the code by itself:** after your password, when Steam asks you to approve in its phone app, the extension chooses **Enter a code instead** and fills your Steam Guard code (if that Steam login has one saved).
